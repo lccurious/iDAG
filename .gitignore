@@ -11,3 +11,4 @@ perturb_results/
 *.pdf
 *.sh
 *.ipynb
+data/
