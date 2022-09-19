@@ -39,7 +39,10 @@ def _hparams(algorithm, dataset, random_state):
     else:
         hparams["weight_decay"] = (0.0, 10 ** random_state.uniform(-6, -2))
 
-    if algorithm in ["DANN", "CDANN"]:
+    if algorithm in ["DRDA"]:
+        hparams["temperature"] = (1.0, 1.0)
+        hparams["ema_ratio"] = (0.3, 0.3)
+    elif algorithm in ["DANN", "CDANN"]:
         if dataset not in SMALL_IMAGES:
             hparams["lr_g"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
             hparams["lr_d"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
