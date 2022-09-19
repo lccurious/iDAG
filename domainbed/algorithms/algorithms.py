@@ -118,8 +118,8 @@ class DRDA(Algorithm):
         self.network = nn.Sequential(self.featurizer, self.classifier)
 
         # define exponential moving average ratio for updating anchors
-        self.ema_ratio = 0.3
-        self.temperature = 0.07
+        self.ema_ratio = hparams["ema_ratio"]
+        self.temperature = hparams["temperature"]
         self.optimizer = get_optimizer(
             hparams["optimizer"],
             self.network.parameters(),
