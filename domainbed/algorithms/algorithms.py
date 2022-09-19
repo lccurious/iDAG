@@ -1,6 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
 import copy
+import itertools
 from typing import List
 
 import torch
@@ -115,21 +116,107 @@ class DRDA(Algorithm):
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
         self.network = nn.Sequential(self.featurizer, self.classifier)
+
+        # define exponential moving average ratio for updating anchors
+        self.ema_ratio = 0.3
+        self.temperature = 0.07
         self.optimizer = get_optimizer(
             hparams["optimizer"],
             self.network.parameters(),
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"],
         )
+        self.register_buffer('ema_anchors', torch.zeros(self.num_domains, self.num_classes, self.featurizer.n_outputs))
+        self.register_buffer('ema_centers', torch.zeros(self.num_domains, self.featurizer.n_outputs))
     
+    def mean_by_label(self, features, labels, domain_labels):
+        """
+        Select mean(samples), count() from samples group by labels order by labels asc
+
+        :param features: NxM samples Tensor which N is number of samples and M is number of feature dimension
+        :type features: torch.Tensor
+        :param labels: Nx1 labels Tensor which N is number of samples and L is number of categories
+        :type labels: torch.Tensor
+        :param num_classes: The complete number of categories
+        :type num_classes: int
+        :return mean: the euclid center of each category of samples, if one category disappear make it zero
+        :rtype mean: torch.Tensor
+        """
+        f_avg = torch.zeros(self.num_domains, self.num_classes, self.featurizer.n_outputs, dtype=features.dtype, device=features.device)
+        f_centers = torch.zeros(self.num_domains, self.featurizer.n_outputs, dtype=features.dtype, device=features.device)
+
+        for d in range(self.num_domains):
+            # select features of current domain
+            f_d = features[domain_labels == d]
+            l_d = labels[domain_labels == d]
+
+            # if this domain not exists
+            if len(f_d) == 0:
+                continue
+
+            num_cur_domain = f_d.shape[0]
+            weights = torch.zeros(self.num_classes, num_cur_domain, dtype=features.dtype, device=features.device)
+            weights[l_d, torch.arange(num_cur_domain)] = 1
+            weights = F.normalize(weights, p=1, dim=1)
+            weights = torch.nan_to_num(weights)
+            # [C, D]
+            mean = torch.mm(weights, f_d)
+            f_avg[d] = mean
+            f_centers[d] = torch.mean(f_d, dim=0)
+        return f_avg, f_centers
+
+    def update_anchors(self, x: torch.Tensor, preds: torch.Tensor, domain_labels: torch.Tensor):
+        f_avg, f_centers = self.mean_by_label(x, preds, domain_labels)
+        ema_anchors = self.ema_ratio * f_avg + (1 - self.ema_ratio) * self.ema_anchors
+        ema_centers = self.ema_ratio * f_centers + (1 - self.ema_ratio) * self.ema_centers
+        return ema_anchors, ema_centers
+
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
         all_y = torch.cat(y)
-        loss = F.cross_entropy(self.predict(all_x), all_y)
+
+        domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long()
+        f = self.featurizer(all_x)
+        ema_anchors, ema_centers = self.update_anchors(f, all_y, domain_labels)
+
+        loss = F.cross_entropy(self.classifier(f), all_y)
+        if kwargs['step'] > 0:
+            ema_vecs = ema_anchors - ema_centers.unsqueeze(1)
+            center_var, center = torch.var_mean(ema_vecs)
+            loss_centers = center_var.mean()
+
+            loss_compact = F.mse_loss(ema_anchors[domain_labels, all_y].detach(), f)
+
+            # normalize the ema_vectors
+            ema_vecs_norm = torch.norm(ema_vecs, p=2, dim=-1, keepdim=True)
+            ema_vecs = ema_vecs / ema_vecs_norm
+            var_vecs_norm = torch.var(ema_vecs_norm, dim=0)
+            loss_norm = var_vecs_norm.mean()
+
+            neg_list, pos_list = [], []
+            for j in range(self.num_domains):
+                neg = torch.einsum('ij,kj->ik', [ema_vecs[j], ema_vecs[j]])
+                neg_list.append(neg.triu(diagonal=1))
+
+            for (j, k) in itertools.combinations(range(self.num_domains), 2):
+                pos = torch.einsum('ij,ij->i', [ema_vecs[j], ema_vecs[k]]).unsqueeze(-1)
+                pos_list.append(pos)
+
+            neg_all = torch.cat(neg_list, dim=1)
+            pos_all = torch.cat(pos_list, dim=1)
+            neg_and_pos = torch.cat((neg_all, pos_all), dim=1)
+            loss_pos = torch.logsumexp(-pos_all / self.temperature, dim=1)
+            loss_neg = torch.logsumexp(neg_and_pos / self.temperature, dim=1)
+            loss_contr = torch.mean(0.5 * loss_pos + 0.5 * loss_neg)
+            loss += loss_contr
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+
+        # update the ema_anchors for model
+        self.ema_anchors = ema_anchors.data
+        self.ema_centers = ema_centers.data
 
         return {"loss": loss.item()}
 
