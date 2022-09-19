@@ -180,7 +180,7 @@ class DRDA(Algorithm):
         ema_anchors, ema_centers = self.update_anchors(f, all_y, domain_labels)
 
         loss = F.cross_entropy(self.classifier(f), all_y)
-        if kwargs['step'] > 0:
+        if kwargs['step'] > 200:
             ema_vecs = ema_anchors - ema_centers.unsqueeze(1)
             center_var, center = torch.var_mean(ema_vecs)
             loss_centers = center_var.mean()
