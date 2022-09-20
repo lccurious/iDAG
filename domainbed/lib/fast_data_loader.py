@@ -16,13 +16,15 @@ class _InfiniteSampler(torch.utils.data.Sampler):
 
 
 class InfiniteDataLoader:
-    def __init__(self, dataset, weights, batch_size, num_workers):
+    def __init__(self, dataset, weights, batch_size, num_workers, args):
         super().__init__()
 
         if weights:
             sampler = torch.utils.data.WeightedRandomSampler(
                 weights, replacement=True, num_samples=batch_size
             )
+        elif args.distributed:
+            sampler = torch.utils.data.distributed.DistributedSampler(dataset)
         else:
             sampler = torch.utils.data.RandomSampler(dataset, replacement=True)
 
