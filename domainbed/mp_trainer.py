@@ -34,11 +34,6 @@ def json_handler(v):
     raise TypeError(f"`{type(v)}` is not JSON Serializable")
 
 
-class DummyObject(object):
-    def __getattr__(self, name):
-        return lambda *x: None
-
-
 def main_worker(gpu, ngpus_per_node, 
                 test_envs, 
                 args, 
@@ -46,7 +41,7 @@ def main_worker(gpu, ngpus_per_node,
                 n_steps, 
                 checkpoint_freq, 
                 logger, 
-                return_dict,
+                return_queue,
                 target_env=None):
     args.gpu = gpu
 
@@ -198,7 +193,6 @@ def main_worker(gpu, ngpus_per_node,
     #######################################################
     # setup algorithm (model)
     #######################################################
-        
     n_params = sum([p.numel() for p in algorithm.parameters()])
     logger.info("# of params = %d" % n_params)
 
@@ -304,7 +298,7 @@ def main_worker(gpu, ngpus_per_node,
                     "test_envs": test_envs,
                     "model_dict": algorithm.cpu().state_dict(),
                 }
-                algorithm.cuda()
+                algorithm.cuda(args.gpu)
                 if not args.debug:
                     torch.save(save_dict, path)
                 else:
@@ -358,6 +352,7 @@ def main_worker(gpu, ngpus_per_node,
     # Evaluate SWAD
     if swad:
         swad_algorithm = swad.get_final_model()
+        swad_algorithm.cuda(args.gpu)
         if hparams["freeze_bn"] is False:
             n_steps = 500 if not args.debug else 10
             logger.warning(f"Update SWAD BN statistics for {n_steps} steps ...")
@@ -378,9 +373,11 @@ def main_worker(gpu, ngpus_per_node,
     for k, acc in ret.items():
         logger.info(f"{k} = {acc:.3%}")
 
+    if 'writer' in locals():
+        writer.close()
+
     if args.multiprocessing_distributed:
-        return_dict.put({"ret": ret, "records": records})
-        return_dict["ret"] = ret
-        return_dict["records"] = records
+        return_queue.append({"ret": ret, "records": records})
+        logger.warning("Finish result put back!")
     else:
         return ret, records

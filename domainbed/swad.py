@@ -25,7 +25,7 @@ class IIDMax(SWADBase):
     def update_and_evaluate(self, segment_swa, val_acc, val_loss, prt_fn):
         if self.iid_max_acc < val_acc:
             self.iid_max_acc = val_acc
-            self.avgmodel = swa_utils.AveragedModel(segment_swa.module, rm_optimizer=True)
+            self.avgmodel = swa_utils.AveragedModel(segment_swa, rm_optimizer=True)
             self.avgmodel.start_step = segment_swa.start_step
 
         self.avgmodel.update_parameters(segment_swa.module)
@@ -148,7 +148,7 @@ class LossValley(SWADBase):
             self.evaluator.logger.error(
                 "Requested final model, but model is not yet converged; return last model instead"
             )
-            return self.converge_Q[-1].cuda()
+            return self.converge_Q[-1]
 
         if not self.dead_valley:
             self.smooth_Q.popleft()
@@ -159,4 +159,4 @@ class LossValley(SWADBase):
                 segment_swa = self.smooth_Q.popleft()
                 self.final_model.update_parameters(segment_swa, step=segment_swa.end_step)
 
-        return self.final_model.cuda()
+        return self.final_model

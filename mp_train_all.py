@@ -18,7 +18,7 @@ from domainbed.datasets import get_dataset
 from domainbed import hparams_registry
 from domainbed.lib import misc
 from domainbed.lib.logger import Logger
-from domainbed.mp_trainer import main_worker, DummyObject
+from domainbed.mp_trainer import main_worker
 
 
 def main():
@@ -44,8 +44,8 @@ def main():
         default=None,
         help="Checkpoint every N steps. Default is dataset-dependent.",
     )
-    parser.add_argument("-j", "--workers", default=32, type=int, metavar='N',
-                        help="number of data loading workers (default: 32)")
+    parser.add_argument("-j", "--workers", default=24, type=int, metavar='N',
+                        help="number of data loading workers (default: 24)")
     parser.add_argument("-b", "--batch-size", default=32, type=int,
                         metavar='N',
                         help="mini-batch size (default: 32), this is the total "
@@ -183,8 +183,8 @@ def main():
     
     for test_env in args.test_envs:
         if args.multiprocessing_distributed:
-            return_queue = mp.Queue()
-            writer = None
+            mannager = mp.Manager()
+            return_queue = mannager.list()
             # Since we have ngpus_per_node processes per node, the total world_size
             # need to be adjusted accordingly
             args.world_size = ngpus_per_node * args.world_size
@@ -198,18 +198,17 @@ def main():
                                                                checkpoint_freq, 
                                                                logger, 
                                                                return_queue))
-            while return_queue.not_empty():
-                pack = return_queue.get()
+            for pack in return_queue:
                 _res, _records = pack["ret"], pack["records"]
             res, records = _res, _records
         else:
             # Simply call main_worker function
             res, records = main_worker(args.gpu, ngpus_per_node, test_env, 
-                        args=args, 
-                        hparams=hparams, 
-                        n_steps=n_steps, 
-                        checkpoint_freq=checkpoint_freq, 
-                        logger=logger)
+                                       args=args, 
+                                       hparams=hparams, 
+                                       n_steps=n_steps, 
+                                       checkpoint_freq=checkpoint_freq, 
+                                       logger=logger)
 
         all_records.append(records)
         for k, v in res.items():

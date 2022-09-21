@@ -16,6 +16,9 @@ class TBWriter(Writer):
     def add_scalars(self, tag_scalar_dic, global_step):
         for tag, scalar in tag_scalar_dic.items():
             self.writer.add_scalar(tag, scalar, global_step)
+    
+    def close(self):
+        self.writer.close()
 
 
 def get_writer(dir_path):
