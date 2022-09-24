@@ -6,7 +6,6 @@ import copy
 import builtins
 import logging
 from pathlib import Path
-from tkinter import W
 
 import numpy as np
 import torch
@@ -64,8 +63,10 @@ def main_worker(gpu, ngpus_per_node,
             # For multiprocessing distributed training, rank needs to be the
             # global rank among all the processes
             args.rank = args.rank * ngpus_per_node + gpu
+
         torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                              world_size=args.world_size, rank=args.rank)
+        logger.warning("Distributed process group initialized!")
     
     #######################################################
     # setup dataset & loader
@@ -379,5 +380,6 @@ def main_worker(gpu, ngpus_per_node,
     if args.multiprocessing_distributed:
         return_queue.append({"ret": ret, "records": records})
         logger.warning("Finish result put back!")
+        torch.distributed.destroy_process_group()
     else:
         return ret, records

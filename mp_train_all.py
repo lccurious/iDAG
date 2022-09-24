@@ -180,27 +180,22 @@ def main():
     args.distributed = args.world_size > 1 or args.multiprocessing_distributed
 
     ngpus_per_node = torch.cuda.device_count()
-    
+    if args.multiprocessing_distributed:
+        # Since we have ngpus_per_node processes per node, the total world_size
+        # need to be adjusted accordingly
+        args.world_size = ngpus_per_node * args.world_size
+
     for test_env in args.test_envs:
         if args.multiprocessing_distributed:
-            mannager = mp.Manager()
-            return_queue = mannager.list()
-            # Since we have ngpus_per_node processes per node, the total world_size
-            # need to be adjusted accordingly
-            args.world_size = ngpus_per_node * args.world_size
             # Use torch.multiprocessing.spawn to launch distributed processes: the
             # main_worker process function
-            mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node, 
-                                                               test_env, 
-                                                               args, 
-                                                               hparams, 
-                                                               n_steps, 
-                                                               checkpoint_freq, 
-                                                               logger, 
-                                                               return_queue))
-            for pack in return_queue:
-                _res, _records = pack["ret"], pack["records"]
-            res, records = _res, _records
+            res, records = train_on_node(ngpus_per_node=ngpus_per_node, 
+                                         test_env=test_env,
+                                         args=args,
+                                         hparams=hparams,
+                                         n_steps=n_steps,
+                                         checkpoint_freq=checkpoint_freq,
+                                         logger=logger)
         else:
             # Simply call main_worker function
             res, records = main_worker(args.gpu, ngpus_per_node, test_env, 
@@ -229,6 +224,23 @@ def main():
         table.add_row([key] + row)
     logger.nofmt(table)
 
+
+def train_on_node(ngpus_per_node, test_env, args, hparams, n_steps, checkpoint_freq, logger):
+    mannager = mp.Manager()
+    return_queue = mannager.list()
+    mp.spawn(main_worker, nprocs=ngpus_per_node, args=(ngpus_per_node,
+                                                       test_env,
+                                                       args,
+                                                       hparams,
+                                                       n_steps,
+                                                       checkpoint_freq,
+                                                       logger,
+                                                       return_queue),
+                                                       join=True)
+    for pack in return_queue:
+        _res, _records = pack["ret"], pack["records"]
+    res, records = _res, _records
+    return res, records
 
 if __name__ == "__main__":
     main()
