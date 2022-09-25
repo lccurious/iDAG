@@ -20,6 +20,7 @@ from domainbed.lib.query import Q
 from domainbed.lib.fast_data_loader import InfiniteDataLoader, FastDataLoader
 from domainbed import swad as swad_module
 from domainbed.lib.writers import get_writer
+from domainbed.lib.logger import Logger
 
 if torch.cuda.is_available():
     device = "cuda"
@@ -51,10 +52,11 @@ def main_worker(gpu, ngpus_per_node,
         builtins.print = print_pass
     else:
         writer = get_writer(args.out_root / "runs" / args.unique_name)
+        logger = Logger.get(args.out_dir / "log.txt")
     
     logger.info("")
     if args.gpu is not None:
-        print("Use GPU: {} for training".format(args.gpu))
+        logger.info("Use GPU: {} for training".format(args.gpu))
     
     if args.distributed:
         if args.dist_url == "env://" and args.rank == -1:
@@ -66,7 +68,7 @@ def main_worker(gpu, ngpus_per_node,
 
         torch.distributed.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                              world_size=args.world_size, rank=args.rank)
-        logger.warning("Distributed process group initialized!")
+        logger.info("Distributed process group initialized!")
     
     #######################################################
     # setup dataset & loader
