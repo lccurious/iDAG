@@ -97,6 +97,8 @@ def main_worker(gpu, ngpus_per_node,
             args.batch_size = int(args.batch_size / ngpus_per_node)
             hparams["batch_size"] = args.batch_size
             args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
+            # introduce the SyncBN, which would replace the common BN with SyncBN
+            algorithm = torch.nn.SyncBatchNorm.convert_sync_batchnorm(algorithm)
             algorithm = torch.nn.parallel.DistributedDataParallel(algorithm, device_ids=[args.gpu])
         else:
             algorithm.cuda()
