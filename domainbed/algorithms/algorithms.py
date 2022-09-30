@@ -278,6 +278,163 @@ class DRDA(Algorithm):
     def predict(self, x):
         return self.network(x)
 
+
+class SupervisedTreeWasserstein(Algorithm):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(SupervisedTreeWasserstein, self).__init__(input_shape, num_classes, num_domains, hparams)
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
+        # TODO: create in config.yml
+        self.n_inner = hparams['n_inner']
+        self.n_leaf = self.featurizer.n_outputs
+        self.n_node = self.n_leaf + self.n_inner
+        self.alpha = hparams['alpha']
+        self.n_ary = hparams['n_ary']
+        self.margin = hparams['margin']
+
+        self.tree_param = nn.Parameter(
+            torch.randn(self.n_inner, self.n_leaf)
+        )
+        self.propotypes = nn.Parameter(
+            torch.randn(num_classes, self.n_leaf)
+        )
+        nn.init.normal_(self.tree_param, 0.0, 0.1)
+        nn.init.normal_(self.propotypes, 0.0, 0.1)
+        
+        self.device = torch.device('cpu')
+
+        self.register_buffer("A", self.get_A())
+        self.register_buffer("inv_A", self.calc_inv_A())
+
+        params = [
+            {"params": self.tree_param},
+            {"params": self.propotypes},
+            {"params": self.featurizer.parameters()}
+        ]
+        self.optimizer = get_optimizer(
+            hparams["optimizer"],
+            params,
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams["weight_decay"]
+        )
+    
+    def cuda(self, device=None):
+        super().cuda(device)
+        self.device = device
+    
+    def classifier_logits(self, mass, block_psub=None):
+        if block_psub is None:
+            block_psub = self.calc_psub()
+        
+        # [C, B, V] = [C, 1, V] - [1, B, V]
+        pairwise_vectors = self.propotypes.unsqueeze(0) - mass.unsqueeze(1)
+        dist = torch.einsum('mn,ijn->ijm', block_psub.detach(), pairwise_vectors)
+
+        pairwise_distances = self.smoothabs(dist, alpha=self.alpha).sum(dim=-1) + self.smoothabs(pairwise_vectors, alpha=self.alpha).sum(dim=-1)
+
+        return -pairwise_distances
+    
+    def update(self, x, y, **kwargs):
+        all_x = torch.cat(x)
+        all_y = torch.cat(y)
+
+        # TODO: Consider whether to create domain labels for it.
+        # domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long()
+        f = self.featurizer(all_x)
+        distances = self.calc_distances(f)
+        logits = self.classifier_logits(f)
+        ce_loss = F.cross_entropy(logits, all_y)
+        contr_loss = self.calc_contrastive_loss(distances, all_y, self.margin)
+        total_loss = contr_loss + ce_loss
+        self.optimizer.zero_grad()
+        total_loss.backward()
+        self.optimizer.step()
+
+        return {"loss": total_loss.item()}
+    
+    def predict(self, x):
+        f = self.featurizer(x)
+        logits = self.classifier_logits(f)
+        return logits
+    
+    @staticmethod
+    def smoothabs(x, alpha):
+        values = torch.clamp(alpha * x, min=-40.0, max=40.0)
+        return (x * torch.exp(values) - x * torch.exp(-values)) / (2.0 + torch.exp(values) + torch.exp(-values))
+    
+    def get_A(self):
+        """
+        Initialize the D1, which is an adjacency matrix from root to the inner
+        nodes and return I - D1.
+        Assume the D1 is the perfect n-ary tree.
+        """
+        A = torch.zeros(self.n_inner, self.n_inner - 1)
+        for i in range(1, int(self.n_inner // self.n_ary)):
+            A[i-1, self.n_ary*(i-1):self.n_ary*i] = 1.0
+        A[int(self.n_inner // self.n_ary) - 1, self.n_ary*(int(self.n_inner)-1):] = 1.0
+        A = A.to(self.device)
+        D1 = torch.cat([torch.zeros(self.n_inner, 1), A], 
+                       dim=1).to(self.device)
+        return torch.eye(self.n_inner, device=self.device) - D1
+    
+    def calc_inv_A(self):
+        """
+        return (I - D1)^{-1}.
+        """
+        return self.A.inverse()
+    
+    def calc_ppar(self):
+        """
+        return upper two blocks of D_par, because the lower blocks are zeros
+        """
+        exp_param = F.softmax(self.tree_param, dim=0)
+        return torch.cat([torch.eye(self.n_inner) - self.A, exp_param], dim=1)
+    
+    def calc_psub(self):
+        """
+        X[i, j] = P_{sub}(v_j+self.n_inner | v_i).
+        """
+        B = F.softmax(self.tree_param, dim=0)
+        X = torch.mm(self.inv_A, B)
+        return X
+
+    def calc_distance(self, mass1, mass2, block_psub=None):
+        """
+        Parameters
+        ----------
+        mass1: torch.Tensor (self.n_leaf, 1)
+            normalized bag-of-words
+        mass2: torch.Tensor (self.n_leaf, 1)
+            normalized bag-of-words
+        block_psub: torch.Tensor (self.n_inner, self.n_leaf)
+            return value of self.calc_block_psub()
+        """
+        if block_psub is None:
+            block_psub = self.calc_psub()
+        return self.smoothabs(torch.mv(block_psub, mass1 - mass2), alpha=self.alpha).sum(dim=-1) + self.smoothabs(mass1 - mass2, alpha=self.alpha).sum(dim=-1)
+    
+    def calc_distances(self, mass, block_psub=None):
+        if block_psub is None:
+            block_psub = self.calc_psub()
+        
+        # [B, B, V]
+        pairwise_vectors = mass.unsqueeze(1) - mass.unsqueeze(0)
+        dist = torch.einsum('mn,ijn->ijm', block_psub, pairwise_vectors)
+
+        pairwise_distances = self.smoothabs(dist, alpha=self.alpha).sum(dim=-1) + self.smoothabs(pairwise_vectors, alpha=self.alpha).sum(dim=-1)
+
+        return pairwise_distances
+    
+    def calc_contrastive_loss(self, distances, labels, margin=10.0):
+        batch_size = distances.shape[0]
+        pos_mask = ((labels.unsqueeze(0) == labels.unsqueeze(1)).float() - torch.eye(batch_size, device=self.device))
+        neg_mask = 1.0 - pos_mask - torch.eye(batch_size, device=self.device)
+        n_pos = pos_mask.sum() + 1e-15
+        n_neg = neg_mask.sum() + 1e-15
+        cl_loss = (distances * pos_mask).sum() / n_pos + (torch.clamp(-distances * neg_mask, -margin)).sum() / n_neg
+        return cl_loss
+
+
 class Mixstyle(Algorithm):
     """MixStyle w/o domain label (random shuffle)"""
 

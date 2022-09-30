@@ -1,5 +1,6 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 
+from random import random
 import numpy as np
 
 
@@ -42,6 +43,11 @@ def _hparams(algorithm, dataset, random_state):
     if algorithm in ["DRDA"]:
         hparams["temperature"] = (0.07, 1.0)
         hparams["ema_ratio"] = (0.3, 0.3)
+    elif algorithm in ["SupervisedTreeWasserstein"]:
+        hparams["n_inner"] = (512, random_state.choice([512, 1024]))
+        hparams["n_ary"] = (8, random_state.choice([5, 8]))
+        hparams["alpha"] = (2.0, random_state.uniform(2.0, 10.0))
+        hparams["margin"] = (10.0, random_state.uniform(2.0, 20.0))
     elif algorithm in ["DANN", "CDANN"]:
         if dataset not in SMALL_IMAGES:
             hparams["lr_g"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
