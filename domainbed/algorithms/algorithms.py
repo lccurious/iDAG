@@ -128,7 +128,7 @@ class DRDA(Algorithm):
         )
         self.register_buffer('ema_anchors', torch.zeros(self.num_domains, self.num_classes, self.featurizer.n_outputs))
         self.register_buffer('ema_centers', torch.zeros(self.num_domains, self.featurizer.n_outputs))
-    
+
     @torch.no_grad()
     def _batch_shuffle_ddp(self, x):
         """
@@ -159,7 +159,7 @@ class DRDA(Algorithm):
         idx_this = idx_shuffle.view(num_gpus, -1)[gpu_idx]
 
         return x_gather[idx_this], idx_unshuffle
-    
+
     @torch.no_grad()
     def _batch_unshuffle_ddp(self, x, idx_unshuffle):
         """
@@ -183,7 +183,7 @@ class DRDA(Algorithm):
         idx_this = idx_unshuffle.view(num_gpus, -1)[gpu_idx]
 
         return x_gather[idx_this]
-    
+
     def mean_by_label(self, features, labels, domain_labels):
         """
         Select mean(samples), count() from samples group by labels order by labels asc
@@ -220,27 +220,35 @@ class DRDA(Algorithm):
             f_centers[d] = torch.mean(f_d, dim=0)
         return f_avg, f_centers
 
-    def update_anchors(self, x: torch.Tensor, preds: torch.Tensor, domain_labels: torch.Tensor):
+    def _update_anchors(self, x: torch.Tensor, preds: torch.Tensor, domain_labels: torch.Tensor):
         f_avg, f_centers = self.mean_by_label(x, preds, domain_labels)
         ema_anchors = self.ema_ratio * f_avg + (1 - self.ema_ratio) * self.ema_anchors
         ema_centers = self.ema_ratio * f_centers + (1 - self.ema_ratio) * self.ema_centers
         return ema_anchors, ema_centers
 
+    def update_anchors(self, x: torch.Tensor, preds: torch.Tensor, domain_labels: torch.Tensor):
+        for d, f, y in zip(domain_labels, x, preds):
+            self.ema_anchors[d][y] = self.ema_anchors[d][y] * self.ema_ratio + f * (1 - self.ema_ratio)
+            self.ema_centers[d] = self.ema_centers[d] * self.ema_ratio + f * (1 - self.ema_ratio)
+
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
         all_y = torch.cat(y)
 
-        domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long()
+        domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long().to(all_x.device)
         f = self.featurizer(all_x)
-        ema_anchors, ema_centers = self.update_anchors(f, all_y, domain_labels)
+
+        # self.update_anchors(concat_all_gather(f), concat_all_gather(all_y), domain_labels)
+        ema_anchors, ema_centers = self._update_anchors(concat_all_gather(f), concat_all_gather(all_y), concat_all_gather(domain_labels))
 
         loss = F.cross_entropy(self.classifier(f), all_y)
         if kwargs['step'] > 200:
             ema_vecs = ema_anchors - ema_centers.unsqueeze(1)
-            center_var, center = torch.var_mean(ema_vecs)
+            center_var, center = torch.var_mean(ema_centers, dim=0)
             loss_centers = center_var.mean()
+            loss += loss_centers
 
-            loss_compact = F.mse_loss(ema_anchors[domain_labels, all_y].detach(), f)
+            loss_compact = F.mse_loss(self.ema_anchors[domain_labels, all_y].detach(), f)
 
             # normalize the ema_vectors
             ema_vecs_norm = torch.norm(ema_vecs, p=2, dim=-1, keepdim=True)
@@ -300,7 +308,7 @@ class SupervisedTreeWasserstein(Algorithm):
         )
         nn.init.normal_(self.tree_param, 0.0, 0.1)
         nn.init.normal_(self.propotypes, 0.0, 0.1)
-        
+
         self.device = torch.device('cpu')
 
         self.register_buffer("A", self.get_A())
@@ -317,15 +325,15 @@ class SupervisedTreeWasserstein(Algorithm):
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"]
         )
-    
+
     def cuda(self, device=None):
         super().cuda(device)
         self.device = device
-    
+
     def classifier_logits(self, mass, block_psub=None):
         if block_psub is None:
             block_psub = self.calc_psub()
-        
+
         # [C, B, V] = [C, 1, V] - [1, B, V]
         pairwise_vectors = self.propotypes.unsqueeze(0) - mass.unsqueeze(1)
         dist = torch.einsum('mn,ijn->ijm', block_psub.detach(), pairwise_vectors)
@@ -333,7 +341,7 @@ class SupervisedTreeWasserstein(Algorithm):
         pairwise_distances = self.smoothabs(dist, alpha=self.alpha).sum(dim=-1) + self.smoothabs(pairwise_vectors, alpha=self.alpha).sum(dim=-1)
 
         return -pairwise_distances
-    
+
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
         all_y = torch.cat(y)
@@ -350,18 +358,18 @@ class SupervisedTreeWasserstein(Algorithm):
         total_loss.backward()
         self.optimizer.step()
 
-        return {"loss": total_loss.item()}
-    
+        return {"ce_loss": total_loss.item(), "contr_loss": contr_loss.item()}
+
     def predict(self, x):
         f = self.featurizer(x)
         logits = self.classifier_logits(f)
         return logits
-    
+
     @staticmethod
     def smoothabs(x, alpha):
         values = torch.clamp(alpha * x, min=-40.0, max=40.0)
         return (x * torch.exp(values) - x * torch.exp(-values)) / (2.0 + torch.exp(values) + torch.exp(-values))
-    
+
     def get_A(self):
         """
         Initialize the D1, which is an adjacency matrix from root to the inner
@@ -373,23 +381,23 @@ class SupervisedTreeWasserstein(Algorithm):
             A[i-1, self.n_ary*(i-1):self.n_ary*i] = 1.0
         A[int(self.n_inner // self.n_ary) - 1, self.n_ary*(int(self.n_inner)-1):] = 1.0
         A = A.to(self.device)
-        D1 = torch.cat([torch.zeros(self.n_inner, 1), A], 
+        D1 = torch.cat([torch.zeros(self.n_inner, 1), A],
                        dim=1).to(self.device)
         return torch.eye(self.n_inner, device=self.device) - D1
-    
+
     def calc_inv_A(self):
         """
         return (I - D1)^{-1}.
         """
         return self.A.inverse()
-    
+
     def calc_ppar(self):
         """
         return upper two blocks of D_par, because the lower blocks are zeros
         """
         exp_param = F.softmax(self.tree_param, dim=0)
         return torch.cat([torch.eye(self.n_inner) - self.A, exp_param], dim=1)
-    
+
     def calc_psub(self):
         """
         X[i, j] = P_{sub}(v_j+self.n_inner | v_i).
@@ -412,11 +420,11 @@ class SupervisedTreeWasserstein(Algorithm):
         if block_psub is None:
             block_psub = self.calc_psub()
         return self.smoothabs(torch.mv(block_psub, mass1 - mass2), alpha=self.alpha).sum(dim=-1) + self.smoothabs(mass1 - mass2, alpha=self.alpha).sum(dim=-1)
-    
+
     def calc_distances(self, mass, block_psub=None):
         if block_psub is None:
             block_psub = self.calc_psub()
-        
+
         # [B, B, V]
         pairwise_vectors = mass.unsqueeze(1) - mass.unsqueeze(0)
         dist = torch.einsum('mn,ijn->ijm', block_psub, pairwise_vectors)
@@ -424,7 +432,7 @@ class SupervisedTreeWasserstein(Algorithm):
         pairwise_distances = self.smoothabs(dist, alpha=self.alpha).sum(dim=-1) + self.smoothabs(pairwise_vectors, alpha=self.alpha).sum(dim=-1)
 
         return pairwise_distances
-    
+
     def calc_contrastive_loss(self, distances, labels, margin=10.0):
         batch_size = distances.shape[0]
         pos_mask = ((labels.unsqueeze(0) == labels.unsqueeze(1)).float() - torch.eye(batch_size, device=self.device))

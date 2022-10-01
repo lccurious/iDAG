@@ -2,4 +2,4 @@
 # Config order: hparams_registry -> config.yaml -> CLI
 
 temperature: 0.07
-ema_ratio: 0.3
+ema_ratio: 0.99
