@@ -383,7 +383,7 @@ def main_worker(gpu, ngpus_per_node,
 
     if args.multiprocessing_distributed:
         return_queue.append({"ret": ret, "records": records})
-        logger.warning("Finish result put back!")
+        logger.info("Finish result put back!")
         torch.distributed.destroy_process_group()
     else:
         return ret, records

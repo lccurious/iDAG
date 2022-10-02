@@ -43,6 +43,11 @@ def accuracy_from_loader(algorithm, loader, weights, debug=False):
 
         if debug:
             break
+    
+    # average across all processes
+    result_tensors = torch.Tensor([correct, losssum, total]).to(device)
+    torch.distributed.all_reduce(result_tensors)
+    correct, losssum, total = result_tensors[0].item(), result_tensors[1].item(), result_tensors[2].item()
 
     algorithm.train()
 

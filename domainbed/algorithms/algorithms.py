@@ -286,7 +286,8 @@ class DRDA(Algorithm):
         f = self.featurizer(all_x)
 
         # self.update_anchors(concat_all_gather(f), concat_all_gather(all_y), domain_labels)
-        ema_anchors, ema_centers = self._update_anchors(f, all_y, domain_labels)
+        ema_anchors, ema_centers = self._update_anchors(
+            concat_all_gather(f), concat_all_gather(all_y), concat_all_gather(domain_labels))
 
         loss = F.cross_entropy(self.classifier(f), all_y)
         if kwargs['step'] > 200:
@@ -325,8 +326,8 @@ class DRDA(Algorithm):
         self.optimizer.step()
 
         # update the ema_anchors for model
-        self.ema_anchors = average_all_gather(ema_anchors).data
-        self.ema_centers = average_all_gather(ema_centers).data
+        self.ema_anchors = ema_anchors.data
+        self.ema_centers = ema_centers.data
 
         return {"loss": loss.item()}
 

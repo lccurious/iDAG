@@ -6,11 +6,17 @@ import torch
 class _InfiniteSampler(torch.utils.data.Sampler):
     """Wraps another Sampler to yield an infinite stream."""
 
-    def __init__(self, sampler):
+    def __init__(self, sampler, manual_shuffle=False, batch_size=None, total_size=None):
         self.sampler = sampler
+        self.manual_shuffle = manual_shuffle
+        self._epoch = 0
 
     def __iter__(self):
         while True:
+            if self.manual_shuffle:
+                self.sampler.sampler.set_epoch(self._epoch)
+                self._epoch += 1
+
             for batch in self.sampler:
                 yield batch
 
@@ -36,7 +42,7 @@ class InfiniteDataLoader:
             torch.utils.data.DataLoader(
                 dataset,
                 num_workers=num_workers,
-                batch_sampler=_InfiniteSampler(batch_sampler),
+                batch_sampler=_InfiniteSampler(batch_sampler, args.distributed, batch_size, len(dataset)),
             )
         )
 
@@ -58,9 +64,11 @@ class FastDataLoader:
         super().__init__()
 
         if shuffle:
-            sampler = torch.utils.data.RandomSampler(dataset, replacement=False)
+            # sampler = torch.utils.data.RandomSampler(dataset, replacement=False)
+            sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=True)
         else:
-            sampler = torch.utils.data.SequentialSampler(dataset)
+            # sampler = torch.utils.data.SequentialSampler(dataset)
+            sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=False)
 
         batch_sampler = torch.utils.data.BatchSampler(
             sampler,
