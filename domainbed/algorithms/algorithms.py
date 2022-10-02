@@ -286,14 +286,14 @@ class DRDA(Algorithm):
         f = self.featurizer(all_x)
 
         # self.update_anchors(concat_all_gather(f), concat_all_gather(all_y), domain_labels)
-        ema_anchors, ema_centers = self._update_anchors(concat_all_gather(f), concat_all_gather(all_y), concat_all_gather(domain_labels))
+        ema_anchors, ema_centers = self._update_anchors(f, all_y, domain_labels)
 
         loss = F.cross_entropy(self.classifier(f), all_y)
         if kwargs['step'] > 200:
             ema_vecs = ema_anchors - ema_centers.unsqueeze(1)
             center_var, center = torch.var_mean(ema_centers, dim=0)
             loss_centers = center_var.mean()
-            loss += loss_centers
+            # loss += loss_centers
 
             loss_compact = F.mse_loss(self.ema_anchors[domain_labels, all_y].detach(), f)
 
@@ -325,8 +325,8 @@ class DRDA(Algorithm):
         self.optimizer.step()
 
         # update the ema_anchors for model
-        self.ema_anchors = ema_anchors.data
-        self.ema_centers = ema_centers.data
+        self.ema_anchors = average_all_gather(ema_anchors).data
+        self.ema_centers = average_all_gather(ema_centers).data
 
         return {"loss": loss.item()}
 
@@ -1461,4 +1461,20 @@ def concat_all_gather(tensor):
     torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
 
     output = torch.cat(tensors_gather, dim=0)
+    return output
+
+@torch.no_grad()
+def average_all_gather(tensor):
+    """
+    Perform all_gather operation on the provided tensors.
+    *** Warning ***: torch.distributed.all_gather has no gradient.
+
+    :param tensor: Input tensot.
+    :type tensor: torch.Tensor
+    """
+    tensors_gather = [torch.ones_like(tensor)
+        for _ in range(torch.distributed.get_world_size())]
+    torch.distributed.all_gather(tensors_gather, tensor, async_op=False)
+
+    output = torch.mean(torch.stack(tensors_gather), dim=0)
     return output
