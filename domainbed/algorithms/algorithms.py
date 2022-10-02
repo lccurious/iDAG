@@ -110,6 +110,53 @@ class ERM(Algorithm):
         return self.network(x)
 
 
+class DAGDG(Algorithm):
+    """
+    DAG domain generalization methods
+
+    """
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(DAGDG, self).__init__(input_shape, num_classes, num_domains, hparams)
+        self.featurizer = networks.Featurizer(input_shape, self.hparams)
+        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
+        self.network = nn.Sequential(self.featurizer, self.classifier)
+        self.dag_param = nn.Parameter(torch.randn(self.featurizer.n_outputs, self.featurizer.n_outputs))
+        nn.init.normal_(self.dag_param, 0.0, 0.01)
+
+        params = [
+            {"params": self.network.parameters()},
+            {"params": self.dag_param}
+        ]
+        self.optimizer = get_optimizer(
+            hparams["optimizer"],
+            params,
+            lr=self.hparams["lr"],
+            weight_decay=self.hparams["weight_decay"],
+        )
+        
+    def update(self, x, y, **kwargs):
+        all_x = torch.cat(x)
+        all_y = torch.cat(y)
+        all_f = self.featurizer(all_x)
+        loss_ce = F.cross_entropy(self.classifier(all_f), all_y)   
+        loss_dag = torch.norm(all_f - all_f @ self.dag_param)
+        loss_dag_p1 = torch.norm(self.dag_param, p=1)
+
+        loss = loss_ce + 0.1 * loss_dag + 0.001 * loss_dag_p1
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {"loss": loss.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item()}
+    
+    def dag_constraint(self):
+        return torch.trace(torch.exp(self.dag_param * self.dag_param)) - self.featurizer.n_outputs
+    
+    def predict(self, x):
+        return self.network(x)
+
+
 class DRDA(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DRDA, self).__init__(input_shape, num_classes, num_domains, hparams)
