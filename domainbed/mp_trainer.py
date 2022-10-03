@@ -1,10 +1,10 @@
 import os
+import random
 import collections
 import json
 import time
 import copy
 import builtins
-import logging
 from pathlib import Path
 
 import numpy as np
@@ -44,6 +44,11 @@ def main_worker(gpu, ngpus_per_node,
                 return_queue,
                 target_env=None):
     args.gpu = gpu
+
+    # seed
+    random.seed(args.seed + gpu)
+    np.random.seed(args.seed + gpu)
+    torch.manual_seed(args.seed + gpu)
 
     # suppress printing if not master
     if args.multiprocessing_distributed and args.gpu != 0:
@@ -98,7 +103,7 @@ def main_worker(gpu, ngpus_per_node,
             hparams["batch_size"] = args.batch_size
             args.workers = int((args.workers + ngpus_per_node - 1) / ngpus_per_node)
             # introduce the SyncBN, which would replace the common BN with SyncBN
-            algorithm = torch.nn.SyncBatchNorm.convert_sync_batchnorm(algorithm)
+            # algorithm = torch.nn.SyncBatchNorm.convert_sync_batchnorm(algorithm)
             algorithm = torch.nn.parallel.DistributedDataParallel(algorithm, device_ids=[args.gpu])
         else:
             algorithm.cuda()
