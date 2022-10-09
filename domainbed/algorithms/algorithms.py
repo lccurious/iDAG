@@ -258,7 +258,7 @@ class DAGDG(Algorithm):
         return {"loss": loss.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item(), "loss_contr": loss_contr.item()}
     
     def dag_constraint(self):
-        return torch.trace(torch.exp(self.dag_param * self.dag_param)) - self.featurizer.n_outputs
+        return torch.trace(torch.exp(self.dag_param * self.dag_param)) - self.dag_param.size(0)
     
     def predict(self, x):
         f = self.featurizer(x)
