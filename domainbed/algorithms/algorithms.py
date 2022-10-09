@@ -139,8 +139,8 @@ class DAGDG(Algorithm):
         all_y = torch.cat(y)
         all_f = self.featurizer(all_x)
         loss_ce = F.cross_entropy(self.classifier(all_f), all_y)   
-        loss_dag = torch.norm(all_f - all_f @ self.dag_param)
-        loss_dag_p1 = torch.norm(self.dag_param, p=1)
+        loss_dag = torch.norm(all_f @ self.dag_param - all_f)
+        loss_dag_p1 = torch.norm(self.dag_param, p=2)
 
         loss = loss_ce + 0.1 * loss_dag + 0.001 * loss_dag_p1
 
@@ -484,7 +484,7 @@ class SupervisedTreeWasserstein(Algorithm):
 
     def calc_contrastive_loss(self, distances, labels, margin=10.0):
         batch_size = distances.shape[0]
-        pos_mask = ((labels.unsqueeze(0) == labels.unsqueeze(1)).float() - torch.eye(batch_size, device=self.device))
+        pos_mask = ((labels.unsqueeze(1) == labels.unsqueeze(0)).float() - torch.eye(batch_size, device=self.device))
         neg_mask = 1.0 - pos_mask - torch.eye(batch_size, device=self.device)
         n_pos = pos_mask.sum() + 1e-15
         n_neg = neg_mask.sum() + 1e-15
