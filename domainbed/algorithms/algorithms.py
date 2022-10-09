@@ -212,11 +212,7 @@ class DAGDG(Algorithm):
 
         factors_y = self.proj_sy(all_f)
         factors_d = self.proj_sd(all_f)
-        factors_x = self.proj_sx(all_f)
-
-        # compute protoyptical logits
-        prototypes_sy = self.prototypes_sy.clone().detach()
-        prototypes_s = self.prototypes_s.clone().detach()
+        factors_x = self.proj_sx(all_f) 
 
         for fy, fd, fx, label_y, label_d in zip(concat_all_gather(factors_y), concat_all_gather(factors_d), concat_all_gather(factors_x), concat_all_gather(all_y), concat_all_gather(domain_labels)):
             f_sy = torch.cat((fy, fx), dim=0)
@@ -225,12 +221,14 @@ class DAGDG(Algorithm):
             self.prototypes_s[label_d, label_y] = self.prototypes_s[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f_s
         self.prototypes_sy = F.normalize(self.prototypes_sy, p=2, dim=1)
         self.prototypes_s = F.normalize(self.prototypes_s, p=2, dim=2)
-
+        # compute protoyptical logits
+        prototypes_sy = self.prototypes_sy.clone().detach()
+        prototypes_s = self.prototypes_s.clone().detach()
         f_sy = torch.cat((factors_y, factors_x), dim=1)
         f_s = torch.cat((factors_d, f_sy), dim=1)
         loss_ce = F.cross_entropy(self.classifier(f_sy), all_y)   
 
-        loss_dag_rec = torch.norm(f_s @ self.dag_param.detach() - f_s)
+        loss_dag_rec = torch.norm(f_s @ self.dag_param - f_s)
         loss_dag_p1 = torch.norm(self.dag_param, p=1)
         loss_dag = torch.pow(self.dag_constraint(), 2.0) + self.dag_constraint()
         
@@ -242,12 +240,12 @@ class DAGDG(Algorithm):
         loss_contr_mu = self.loss_proto_con(f_sy, prototypes_sy, all_y)
         loss_contr_nu = self.loss_multi_proto_con(f_s, prototypes_s, all_y, domain_labels)
         loss_contr = loss_contr_mu + loss_contr_nu
-        if kwargs['step'] > 200:
-            loss = loss_ce + loss_contr
-        else:
-            loss = loss_ce
+        # if kwargs['step'] > 200:
+        #     loss = loss_ce + loss_contr
+        # else:
+        #     loss = loss_ce
 
-        # loss = loss_ce + loss_dag_rec + 0.0001 * loss_dag + loss_dag_p1 + loss_contr
+        loss = loss_ce + 0.01 * loss_dag_rec + loss_dag + 0.001 * loss_dag_p1 + loss_contr
 
         # self._dequeue_and_enqueue(f_sy, f_s, all_y, domain_labels)
 
@@ -255,7 +253,7 @@ class DAGDG(Algorithm):
         loss.backward()
         self.optimizer.step()
 
-        return {"loss": loss.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item(), "loss_contr": loss_contr.item()}
+        return {"loss": loss.item(), "loss_ce": loss_ce.item(), "loss_rec": loss_dag_rec.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item(), "loss_contr": loss_contr.item()}
     
     def dag_constraint(self):
         return torch.trace(torch.exp(self.dag_param * self.dag_param)) - self.dag_param.size(0)
