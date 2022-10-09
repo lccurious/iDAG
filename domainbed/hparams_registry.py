@@ -40,7 +40,12 @@ def _hparams(algorithm, dataset, random_state):
     else:
         hparams["weight_decay"] = (0.0, 10 ** random_state.uniform(-6, -2))
 
-    if algorithm in ["DRDA"]:
+    if algorithm in ["DAGDG"]:
+        hparams["temperature"] = (0.07, 1.0)
+        hparams["ema_ratio"] = (0.99, 0.99)
+        hparams["factor_dim"] = (128, 128)
+
+    elif algorithm in ["DRDA"]:
         hparams["temperature"] = (0.07, 1.0)
         hparams["ema_ratio"] = (0.3, 0.3)
     elif algorithm in ["SupervisedTreeWasserstein"]:

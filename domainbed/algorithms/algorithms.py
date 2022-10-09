@@ -110,6 +110,53 @@ class ERM(Algorithm):
         return self.network(x)
 
 
+class PrototypePLoss(nn.Module):
+    def __init__(self, num_classes, num_domains, temperature):
+        super(PrototypePLoss, self).__init__()
+        self.soft_plus = nn.Softplus()
+        self.label = torch.arange(num_classes)
+        self.domain_label = torch.arange(num_domains)
+        self.temperature = temperature
+    
+    def forward(self, feature, prototypes, labels):
+        feature = F.normalize(feature, p=2, dim=1)
+        feature_prototype = torch.einsum('nc,mc->nm', feature, prototypes)
+        
+        feature_pairwise = torch.einsum('ic,jc->ij', feature, feature)
+        mask_neg = torch.not_equal(labels, labels.T)
+        l_neg = feature_pairwise * mask_neg
+        l_neg = l_neg.masked_fill(l_neg < 1e-6, -np.inf)
+
+        # [N, C+N]
+        logits = torch.cat([feature_prototype, l_neg], dim=1)
+        loss = F.nll_loss(F.log_softmax(logits / self.temperature, dim=1), labels)
+        return loss
+
+
+class MultiDomainPrototypePLoss(nn.Module):
+    def __init__(self, num_classes, num_domains, temperature):
+        super(MultiDomainPrototypePLoss, self).__init__()
+        self.soft_plus = nn.Softplus()
+        self.num_classes = num_classes
+        self.label = torch.arange(num_classes)
+        self.domain_label = torch.arange(num_domains)
+        self.temperature = temperature
+    
+    def forward(self, feature, prototypes, labels, domain_labels):
+        feature = F.normalize(feature, p=2, dim=1)
+        feature_prototype = torch.einsum('nc,mc->nm', feature, prototypes.reshape(-1, prototypes.size(-1)))
+        
+        feature_pairwise = torch.einsum('ic,jc->ij', feature, feature)
+        mask_neg = torch.logical_or(torch.not_equal(labels, labels.T), torch.not_equal(domain_labels, domain_labels))
+        l_neg = feature_pairwise * mask_neg
+        l_neg = l_neg.masked_fill(l_neg < 1e-6, -np.inf)
+
+        # [N, C*D + N]
+        logits = torch.cat([feature_prototype, l_neg], dim=1)
+        loss = F.nll_loss(F.log_softmax(logits / self.temperature, dim=1), domain_labels * self.num_classes + labels)
+        return loss
+
+
 class DAGDG(Algorithm):
     """
     DAG domain generalization methods
@@ -118,14 +165,33 @@ class DAGDG(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DAGDG, self).__init__(input_shape, num_classes, num_domains, hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
+        self.classifier = nn.Linear(hparams['factor_dim'] * 2, num_classes)
         self.network = nn.Sequential(self.featurizer, self.classifier)
-        self.dag_param = nn.Parameter(torch.randn(self.featurizer.n_outputs, self.featurizer.n_outputs))
+        self.proj_sy = nn.Linear(self.featurizer.n_outputs, hparams['factor_dim'])        
+        self.proj_sd = nn.Linear(self.featurizer.n_outputs, hparams['factor_dim'])
+        self.proj_sx = nn.Linear(self.featurizer.n_outputs, hparams['factor_dim'])
+        self.decoder = nn.Linear(self.hparams['factor_dim'] * 3, self.featurizer.n_outputs)
+        self.dag_param = nn.Parameter(torch.randn(self.hparams['factor_dim'] * 3, self.hparams['factor_dim'] * 3))
         nn.init.normal_(self.dag_param, 0.0, 0.01)
+        self.proto_m = self.hparams["ema_ratio"]
+
+        # create the queue
+        # self.register_buffer("queue_s", torch.randn(hparams["queue_length"], hparams['factor_dim'] * 3))
+        # self.register_buffer("queue_sy", torch.randn(hparams["queue_length"], hparams['factor_dim'] * 2))
+        # self.register_buffer("queue_label", torch.randn(hparams["queue_length"], num_classes))
+        # self.register_buffer("queue_domain", torch.randn(hparams["queue_length"], num_domains))
+        # self.queue = F.normalize(self.queue, dim=0)
+        # self.register_buffer("queue_ptr", torch.zeros(1, dtype=torch.long))
+        self.register_buffer("prototypes_sy", torch.zeros(num_classes, hparams["factor_dim"] * 2))
+        self.register_buffer("prototypes_s", torch.zeros(num_domains, num_classes, hparams["factor_dim"] * 3))
 
         params = [
             {"params": self.network.parameters()},
-            {"params": self.dag_param}
+            {"params": self.dag_param},
+            {"params": self.proj_sy.parameters()},
+            {"params": self.proj_sd.parameters()},
+            {"params": self.proj_sx.parameters()},
+            # {"params": self.decoder.parameters()},
         ]
         self.optimizer = get_optimizer(
             hparams["optimizer"],
@@ -133,28 +199,94 @@ class DAGDG(Algorithm):
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"],
         )
+        self.loss_proto_con = PrototypePLoss(num_classes, num_domains, hparams['temperature'])
+        self.loss_multi_proto_con = MultiDomainPrototypePLoss(num_classes, num_domains, hparams['temperature'])
         
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
         all_y = torch.cat(y)
-        all_f = self.featurizer(all_x)
-        loss_ce = F.cross_entropy(self.classifier(all_f), all_y)   
-        loss_dag = torch.norm(all_f @ self.dag_param - all_f)
-        loss_dag_p1 = torch.norm(self.dag_param, p=2)
+        
+        domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long().to(all_x.device)
 
-        loss = loss_ce + 0.1 * loss_dag + 0.001 * loss_dag_p1
+        all_f = self.featurizer(all_x)
+
+        factors_y = self.proj_sy(all_f)
+        factors_d = self.proj_sd(all_f)
+        factors_x = self.proj_sx(all_f)
+
+        # compute protoyptical logits
+        prototypes_sy = self.prototypes_sy.clone().detach()
+        prototypes_s = self.prototypes_s.clone().detach()
+
+        for fy, fd, fx, label_y, label_d in zip(concat_all_gather(factors_y), concat_all_gather(factors_d), concat_all_gather(factors_x), concat_all_gather(all_y), concat_all_gather(domain_labels)):
+            f_sy = torch.cat((fy, fx), dim=0)
+            f_s = torch.cat((fd, f_sy), dim=0)
+            self.prototypes_sy[label_y] = self.prototypes_sy[label_y] * self.proto_m + (1 - self.proto_m) * f_sy
+            self.prototypes_s[label_d, label_y] = self.prototypes_s[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f_s
+        self.prototypes_sy = F.normalize(self.prototypes_sy, p=2, dim=1)
+        self.prototypes_s = F.normalize(self.prototypes_s, p=2, dim=2)
+
+        f_sy = torch.cat((factors_y, factors_x), dim=1)
+        f_s = torch.cat((factors_d, f_sy), dim=1)
+        loss_ce = F.cross_entropy(self.classifier(f_sy), all_y)   
+
+        loss_dag_rec = torch.norm(f_s @ self.dag_param.detach() - f_s)
+        loss_dag_p1 = torch.norm(self.dag_param, p=1)
+        loss_dag = torch.pow(self.dag_constraint(), 2.0) + self.dag_constraint()
+        
+        # f_sy_con = torch.cat((f_sy, self.queue_sy))
+        # f_s_con = torch.cat((f_s, self.queue_s))
+        # y_con = torch.cat((all_y, self.queue_label))
+        # d_con = torch.cat((all_y, self.queue_domain))
+
+        loss_contr_mu = self.loss_proto_con(f_sy, prototypes_sy, all_y)
+        loss_contr_nu = self.loss_multi_proto_con(f_s, prototypes_s, all_y, domain_labels)
+        loss_contr = loss_contr_mu + loss_contr_nu
+        if kwargs['step'] > 200:
+            loss = loss_ce + loss_contr
+        else:
+            loss = loss_ce
+
+        # loss = loss_ce + loss_dag_rec + 0.0001 * loss_dag + loss_dag_p1 + loss_contr
+
+        # self._dequeue_and_enqueue(f_sy, f_s, all_y, domain_labels)
 
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
 
-        return {"loss": loss.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item()}
+        return {"loss": loss.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item(), "loss_contr": loss_contr.item()}
     
     def dag_constraint(self):
         return torch.trace(torch.exp(self.dag_param * self.dag_param)) - self.featurizer.n_outputs
     
     def predict(self, x):
-        return self.network(x)
+        f = self.featurizer(x)
+        factors_y = self.proj_sy(f)
+        factors_x = self.proj_sx(f)
+        f_sy = torch.cat((factors_y, factors_x), dim=1)
+        return self.classifier(f_sy)
+
+    @torch.no_grad()
+    def _dequeue_and_enqueue(self, f_sy, f_s, y, domain_labels):
+        # gather keys before updating queue
+        f_sy = concat_all_gather(f_sy)
+        f_s = concat_all_gather(f_s)
+        y = concat_all_gather(y)
+        domain_labels = concat_all_gather(domain_labels)
+
+        batch_size = f_sy.size(0)
+
+        ptr = int(self.queue_ptr)
+        assert self.hparams['queue_length'] % batch_size == 0
+
+        # replace the keys at ptr (dequeue and enqueue)
+        self.queue_sy[ptr:ptr + batch_size, :] = f_sy
+        self.queue_s[ptr:ptr + batch_size, :] = f_s
+        self.queue_label[ptr:ptr + batch_size, :] = y
+        self.queue_domain[ptr:ptr + batch_size, :] = domain_labels
+        ptr = (ptr + batch_size) % self.hparams['queue_length']
+        self.queue_ptr[0] = ptr
 
 
 class DRDA(Algorithm):
