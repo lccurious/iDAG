@@ -44,7 +44,6 @@ def _hparams(algorithm, dataset, random_state):
         hparams["temperature"] = (0.07, 1.0)
         hparams["ema_ratio"] = (0.99, 0.99)
         hparams["factor_dim"] = (128, 128)
-
     elif algorithm in ["DRDA"]:
         hparams["temperature"] = (0.07, 1.0)
         hparams["ema_ratio"] = (0.3, 0.3)
