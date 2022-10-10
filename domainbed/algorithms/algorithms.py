@@ -228,7 +228,7 @@ class DAGDG(Algorithm):
         f_s = torch.cat((factors_d, f_sy), dim=1)
         loss_ce = F.cross_entropy(self.classifier(f_sy), all_y)   
 
-        loss_dag_rec = torch.norm(f_s @ self.dag_param - f_s)
+        loss_dag_rec = F.mse_loss(f_s @ self.dag_param.detach(), f_s)
         loss_dag_p1 = torch.norm(self.dag_param, p=1)
         loss_dag = torch.pow(self.dag_constraint(), 2.0) + self.dag_constraint()
         
@@ -245,7 +245,7 @@ class DAGDG(Algorithm):
         # else:
         #     loss = loss_ce
 
-        loss = loss_ce + 0.01 * loss_dag_rec + loss_dag + 0.001 * loss_dag_p1 + loss_contr
+        loss = loss_ce + loss_dag_rec + loss_dag + 0.001 * loss_dag_p1 + loss_contr
 
         # self._dequeue_and_enqueue(f_sy, f_s, all_y, domain_labels)
 
@@ -256,7 +256,7 @@ class DAGDG(Algorithm):
         return {"loss": loss.item(), "loss_ce": loss_ce.item(), "loss_rec": loss_dag_rec.item(), "loss_dag": loss_dag.item(), "loss_dag_p1": loss_dag_p1.item(), "loss_contr": loss_contr.item()}
     
     def dag_constraint(self):
-        return torch.trace(torch.exp(self.dag_param * self.dag_param)) - self.dag_param.size(0)
+        return torch.trace(torch.matrix_exp(self.dag_param * self.dag_param)) - self.dag_param.size(0)
     
     def predict(self, x):
         f = self.featurizer(x)
