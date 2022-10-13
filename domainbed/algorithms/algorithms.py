@@ -13,7 +13,7 @@ import numpy as np
 
 from domainbed import networks
 from domainbed.lib.misc import random_pairs_of_minibatches
-from domainbed.optimizers import get_optimizer
+from domainbed.optimizers import get_optimizer, LBFGSBScipy
 
 from domainbed.models.resnet_mixstyle import (
     resnet18_mixstyle_L234_p0d5_a0d1,
@@ -107,6 +107,86 @@ class ERM(Algorithm):
 
     def predict(self, x):
         return self.network(x)
+
+
+class NotearsERM(ERM):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(NotearsERM, self).__init__(input_shape, num_classes, num_domains, hparams)
+        self.notears_mlp = networks.NotearsMLP(
+            dims=[self.featurizer.n_outputs, 10, 1], bias=True)
+        self.notears_optimizer = LBFGSBScipy(self.notears_mlp.parameters())
+        self.lambda1 = hparams['lambda1']
+        self.lambda2 = hparams['lambda2']
+        self.notears_max_iter = hparams['notears_max_iter']
+        self.h_tol = hparams['h_tol']
+        self.rho_max = hparams['rho_max']
+        self.w_threshold = hparams['w_threshold']
+        self.rho = 1.0
+        self.alpha = 1.0
+        self.h = np.inf
+
+    @staticmethod
+    def _squared_loss(output, target):
+        n = target.shape[0]
+        loss = 0.5 / n * torch.sum((output - target) ** 2)
+        return loss
+
+    def _dual_ascent_step(self, model, X, lambda1, lambda2, rho, alpha, h, rho_max):
+        """Perform one step of dual ascent in augmented Lagrangian."""
+        h_new = None
+        optimizer = LBFGSBScipy(model.parameters())
+        while rho < rho_max:
+            def closure():
+                optimizer.zero_grad()
+                model.cuda()
+                X_hat = model(X)
+                loss = self._squared_loss(X_hat, X)
+                h_val = model.h_func()
+                penalty = 0.5 * rho * h_val * h_val + alpha * h_val
+                l2_reg = 0.5 * lambda2 * model.l2_reg()
+                l1_reg = lambda1 * model.fc1_l1_reg()
+                primal_obj = loss + penalty + l2_reg + l1_reg
+                primal_obj.backward()
+                return primal_obj
+            # NOTE: updates model in-place
+            optimizer.step(closure)
+            with torch.no_grad():
+                h_new = model.h_func().item()
+            if h_new > 0.25 * h:
+                rho *= 10
+            else:
+                break
+        alpha += rho * h_new
+        return rho, alpha, h_new
+
+    def update(self, x, y, **kwargs):
+        all_x = torch.cat(x)
+        all_y = torch.cat(y)
+        all_f = self.featurizer(all_x)
+        notears_f = self.notears_mlp(all_f)
+        logits = self.classifier(notears_f)
+        loss = F.cross_entropy(logits, all_y)
+
+        # Notears showtime
+        for _ in range(self.notears_max_iter):
+            self.rho, self.alpha, self.h = self._dual_ascent_step(
+                self.notears_mlp, all_f.detach(), self.lambda1, self.lambda2,
+                self.rho, self.alpha, self.h, self.rho_max)
+            if self.h <= self.h_tol or self.rho >= self.rho_max:
+                break
+
+        self.notears_mlp.cuda()
+
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return {"loss": loss.item()}
+
+    def predict(self, x):
+        f = self.featurizer(x)
+        notears_x = self.notears_mlp(f)
+        return self.classifier(notears_x)
 
 
 class Mixstyle(Algorithm):
