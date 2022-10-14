@@ -289,8 +289,9 @@ class NotearsMLP(nn.Module):
         # fc2: local linear layers
         layers = []
         for l in range(len(dims) - 2):
+            layers.append(nn.Sigmoid())
             layers.append(LocallyConnected(d, dims[l + 1], dims[l + 2], bias=bias))
-        self.fc2 = nn.ModuleList(layers)
+        self.fc2 = nn.Sequential(*layers)
 
     def _bounds(self):
         d = self.dims[0]
@@ -309,9 +310,7 @@ class NotearsMLP(nn.Module):
         # [n, d] -> [n, d]
         x = self.fc1_pos(x) - self.fc1_neg(x)
         x = x.view(-1, self.dims[0], self.dims[1])
-        for fc in self.fc2:
-            x = torch.sigmoid(x)
-            x = fc(x)
+        x = self.fc2(x)
         x = x.squeeze(dim=2)
         return x
 
@@ -333,16 +332,17 @@ class NotearsMLP(nn.Module):
         """
         reg = 0.
         fc1_weight = self.fc1_pos.weight - self.fc1_neg.weight
-        reg += torch.sum(fc1_weight ** 2)
-        for fc in self.fc2:
-            reg += torch.sum(fc.weight ** 2)
+        reg += torch.norm(fc1_weight)
+
+        for param in self.fc2.parameters():
+            reg += torch.norm(param)
         return reg
 
     def fc1_l1_reg(self):
         """
         Take l1 norm of fc1 weight
         """
-        reg = torch.sum(self.fc1_pos.weight + self.fc1_neg.weight)
+        reg = torch.mean(self.fc1_pos.weight + self.fc1_neg.weight)
         return reg
 
     @torch.no_grad()

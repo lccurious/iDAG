@@ -114,7 +114,9 @@ class NotearsERM(ERM):
         super(NotearsERM, self).__init__(input_shape, num_classes, num_domains, hparams)
         self.notears_mlp = networks.NotearsMLP(
             dims=[self.featurizer.n_outputs, 10, 1], bias=True)
-        self.notears_optimizer = LBFGSBScipy(self.notears_mlp.parameters())
+        # self.notears_optimizer = LBFGSBScipy(self.notears_mlp.parameters())
+        # TODO: use the default config for test only
+        self.notears_optimizer = torch.optim.Adam(self.notears_mlp.parameters(), lr=self.hparams["lr"] * 10)
         self.lambda1 = hparams['lambda1']
         self.lambda2 = hparams['lambda2']
         self.notears_max_iter = hparams['notears_max_iter']
@@ -134,10 +136,11 @@ class NotearsERM(ERM):
     def _dual_ascent_step(self, model, X, lambda1, lambda2, rho, alpha, h, rho_max):
         """Perform one step of dual ascent in augmented Lagrangian."""
         h_new = None
-        optimizer = LBFGSBScipy(model.parameters())
+        # optimizer = LBFGSBScipy(model.parameters())
         while rho < rho_max:
+            print("rho: {}".format(rho))
             def closure():
-                optimizer.zero_grad()
+                self.notears_optimizer.zero_grad()
                 model.cuda()
                 X_hat = model(X)
                 loss = self._squared_loss(X_hat, X)
@@ -149,7 +152,7 @@ class NotearsERM(ERM):
                 primal_obj.backward()
                 return primal_obj
             # NOTE: updates model in-place
-            optimizer.step(closure)
+            self.notears_optimizer.step(closure)
             with torch.no_grad():
                 h_new = model.h_func().item()
             if h_new > 0.25 * h:
@@ -162,31 +165,48 @@ class NotearsERM(ERM):
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
         all_y = torch.cat(y)
+
+        # constraint weights
+        for p in self.notears_mlp.fc1_pos.parameters():
+            p.data.clamp_(0, None)
+        self.notears_mlp.fc1_pos.weight.data -= torch.diag(self.notears_mlp.fc1_pos.weight)
+        for p in self.notears_mlp.fc1_neg.parameters():
+            p.data.clamp_(0, None)
+        self.notears_mlp.fc1_neg.weight.data -= torch.diag(self.notears_mlp.fc1_neg.weight)
+
         all_f = self.featurizer(all_x)
         notears_f = self.notears_mlp(all_f)
-        logits = self.classifier(notears_f)
+        logits = self.classifier(all_f)
         loss = F.cross_entropy(logits, all_y)
 
         # Notears showtime
-        for _ in range(self.notears_max_iter):
-            self.rho, self.alpha, self.h = self._dual_ascent_step(
-                self.notears_mlp, all_f.detach(), self.lambda1, self.lambda2,
-                self.rho, self.alpha, self.h, self.rho_max)
-            if self.h <= self.h_tol or self.rho >= self.rho_max:
-                break
-
-        self.notears_mlp.cuda()
+        # for _ in range(self.notears_max_iter):
+        #     self.rho, self.alpha, self.h = self._dual_ascent_step(
+        #         self.notears_mlp, all_f.detach(), self.lambda1, self.lambda2,
+        #         self.rho, self.alpha, self.h, self.rho_max)
+        #     if self.h <= self.h_tol or self.rho >= self.rho_max:
+        #         break
+        loss_rec = F.mse_loss(notears_f, all_f)
+        h_val = self.notears_mlp.h_func()
+        penalty = 0.5 * self.rho * h_val * h_val + self.alpha * h_val
+        l2_reg = 0.5 * self.lambda2 * self.notears_mlp.l2_reg()
+        l1_reg = self.lambda1 * self.notears_mlp.fc1_l1_reg()
+        loss_dag = loss_rec + penalty + l2_reg + l1_reg
+        loss = loss + loss_dag
 
         self.optimizer.zero_grad()
+        self.notears_optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        self.notears_optimizer.step()
 
-        return {"loss": loss.item()}
+
+        return {"loss": loss.item(), "loss_rec": loss_rec.item(), "penalty": penalty.item(), "l2_reg": l2_reg.item(), "l1_reg": l1_reg.item()}
 
     def predict(self, x):
         f = self.featurizer(x)
         notears_x = self.notears_mlp(f)
-        return self.classifier(notears_x)
+        return self.classifier(f)
 
 
 class Mixstyle(Algorithm):
