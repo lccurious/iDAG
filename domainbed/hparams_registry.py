@@ -93,7 +93,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["beta"] = (1.0, 1.0)
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
-    elif algorithm == "NotearsERM":
+    elif algorithm in ["NotearsERM", "DAGDG"]:
         hparams["lambda1"] = (0.01, 0.001)
         hparams["lambda2"] = (0.01, 0.001)
         hparams["notears_max_iter"] = (1, 100)

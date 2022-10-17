@@ -280,6 +280,7 @@ class NotearsMLP(nn.Module):
         assert dims[-1] == 1
         d = dims[0]
         self.dims = dims
+        self.register_buffer("_identity", torch.eye(d))
         # fc1: variable spliting for l1 ref: <http://arxiv.org/abs/1909.13189>
         self.fc1_pos = nn.Linear(d, d * dims[1], bias=bias)
         self.fc1_neg = nn.Linear(d, d * dims[1], bias=bias)
@@ -332,17 +333,18 @@ class NotearsMLP(nn.Module):
         """
         reg = 0.
         fc1_weight = self.fc1_pos.weight - self.fc1_neg.weight
-        reg += torch.norm(fc1_weight)
+        reg += torch.sum(fc1_weight ** 2)
 
-        for param in self.fc2.parameters():
-            reg += torch.norm(param)
+        for fc in self.fc2:
+            if hasattr(fc, 'weight'):
+                reg += torch.sum(fc.weight ** 2)
         return reg
 
     def fc1_l1_reg(self):
         """
         Take l1 norm of fc1 weight
         """
-        reg = torch.mean(self.fc1_pos.weight + self.fc1_neg.weight)
+        reg = torch.sum(self.fc1_pos.weight + self.fc1_neg.weight)
         return reg
 
     @torch.no_grad()
@@ -357,4 +359,13 @@ class NotearsMLP(nn.Module):
         W = torch.sqrt(A)
         W = W.cpu().detach().numpy()
         return W
+
+    @torch.no_grad()
+    def fc1_to_p_sub(self) -> torch.Tensor:
+        d = self.dims[0]
+        fc1_weight = self.fc1_pos.weight - self.fc1_neg.weight
+        fc1_weight = fc1_weight.view(d, -1, d)
+        A = torch.sum(fc1_weight * fc1_weight, dim=1).t()
+        P_sub = torch.inverse(self._identity - A)
+        return P_sub
 
