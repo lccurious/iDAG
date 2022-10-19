@@ -22,6 +22,10 @@ def _hparams(algorithm, dataset, random_state):
     hparams["freeze_bn"] = (True, True)
     hparams["pretrained"] = (True, True)  # only for ResNet
 
+    if dataset in ["ColoredMNIST"]:
+        hparams["hidden_dim"] = (390, 390)
+        hparams["grayscale_model"] = (False, False)
+
     if dataset not in SMALL_IMAGES:
         hparams["lr"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
         if dataset == "DomainNet":
@@ -98,7 +102,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["lambda2"] = (0.01, 0.001)
         hparams["notears_max_iter"] = (1, 100)
         hparams["h_tol"] = (1e-8, 1e-8)
-        hparams["rho_max"] = (1e+16, 1e+16)
+        hparams["rho_max"] = (1e+6, 1e+16)
         hparams["w_threshold"] = (0.3, 0.3)
 
     return hparams
