@@ -124,7 +124,7 @@ class ColoredMNIST(MultipleEnvironmentMNIST):
     def __init__(self, root):
         super(ColoredMNIST, self).__init__(
             root,
-            [0.1, 0.2, 0.9],
+            [0.9 , 0.1, 0.2],
             self.color_dataset,
             (2, 14, 14),
             2,

@@ -406,6 +406,47 @@ class NotearsMLP(nn.Module):
         return P_sub
 
 
+class LinearNotears(nn.Module):
+    def __init__(self, dims, loss_type='l2'):
+        super(LinearNotears, self).__init__()
+        self.dims = dims
+        self.loss_type = loss_type
+        self.register_buffer("_I", torch.zeros(dims, dims))
+        self.weight_pos = nn.Parameter(torch.zeros(dims, dims))
+        self.weight_neg = nn.Parameter(torch.zeros(dims, dims))
+
+    def _adj(self):
+        return self.weight_pos - self.weight_neg
+
+    def h_func(self):
+        W = self._adj()
+        E = torch.matrix_exp(W * W)
+        h = torch.trace(E) - self.dims
+        # G_h = E.T * W * 2
+        return h
+
+    def _h_faster(self):
+        W = self._adj()
+        M = self._I + W * W / self.dims
+        E = torch.matrix_power(M, self.dims - 1)
+        h = (E.T * M).sum() - self.dims
+        return h
+
+    def w_l1_reg(self):
+        reg = torch.sum(self.weight_pos + self.weight_neg)
+        return reg
+
+    def forward(self, x):
+        W = self._adj()
+        M = x @ W
+        return M
+
+    def w_to_p_sub(self):
+        W = self._adj()
+        P_sub = torch.inverse(self._I - W)
+        return P_sub
+
+
 class NotearsClassifier(nn.Module):
     def __init__(self, dims, hidden_layers=[10], bias=True):
         super(NotearsClassifier, self).__init__()

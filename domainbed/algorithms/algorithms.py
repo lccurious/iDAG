@@ -227,55 +227,90 @@ class NotearsERM(ERM):
 class DAGDG(ERM):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DAGDG, self).__init__(input_shape, num_classes, num_domains, hparams)
-        self.notears_mlp = networks.NotearsMLP(
-            dims=[self.featurizer.n_outputs + 1, 10, 1], bias=True)
-        self._dag_weight_constraint = DAGWeightConstraint(
-            d=self.featurizer.n_outputs + 1, k=10)
-        self.notears_mlp.fc1_pos.apply(self._dag_weight_constraint)
-        self.notears_mlp.fc1_neg.apply(self._dag_weight_constraint)
+        # self.notears_mlp = networks.NotearsMLP(
+        #     dims=[self.featurizer.n_outputs + 1, 10, 1], bias=True)
+        # self._dag_weight_constraint = DAGWeightConstraint(
+        #     d=self.featurizer.n_outputs + 1, k=10)
+        # self.notears_mlp.fc1_pos.apply(self._dag_weight_constraint)
+        # self.notears_mlp.fc1_neg.apply(self._dag_weight_constraint)
+        self.notears_mlp = networks.LinearNotears(self.featurizer.n_outputs + 1)
         self.notears_optimizer = torch.optim.Adam(self.notears_mlp.parameters(),
-                                                  lr=self.hparams["lr"])
+                                                  lr=self.hparams["lr"] * 10)
         self.lambda1 = hparams['lambda1']
         self.lambda2 = hparams['lambda2']
         self.notears_max_iter = hparams['notears_max_iter']
         self.h_tol = hparams['h_tol']
         self.rho_max = hparams['rho_max']
         self.w_threshold = hparams['w_threshold']
-        self.rho = 1.0
-        self.alpha = 1.0
+        self.rho = 1e8
+        self.alpha = 1e8
         self.h = np.inf
+        self.train_dag = False
         # self.contr_loss = losses.SimCLRLoss(normalize=False, tau=0.07)
 
         # create prototype
         # self.register_buffer("prototypes_sy", torch.zeros(num_classes, hparam["factor_dim"]))
         # self.register_buffer("prototypes", torch.zeros(num_domains, num_classes, hparams["factor_dim"]))
 
+    @staticmethod
+    def _irm_penalty(logits, y):
+        scale = torch.tensor(1.0).cuda().requires_grad_()
+        loss_1 = F.binary_cross_entropy_with_logits(logits[::2] * scale, y[::2])
+        loss_2 = F.binary_cross_entropy_with_logits(logits[1::2] * scale, y[1::2])
+        grad_1 = autograd.grad(loss_1, [scale], create_graph=True)[0]
+        grad_2 = autograd.grad(loss_2, [scale], create_graph=True)[0]
+        result = torch.sum(grad_1 * grad_2)
+        return result
+
     def update(self, x, y, **kwargs):
+        minibatches = to_minibatch(x, y)
         all_x = torch.cat(x)
         all_y = torch.cat(y)
 
         all_f = self.featurizer(all_x)
         dag_inputs = torch.cat([all_f, all_y.unsqueeze(1)], dim=1)
 
-        # constraint weights
-        self.notears_mlp.fc1_pos.apply(self._dag_weight_constraint)
-        self.notears_mlp.fc1_neg.apply(self._dag_weight_constraint)
-
         notears_pos = self.notears_mlp(dag_inputs)
-
-        # loss_ce = F.cross_entropy(self.classifier(all_f), all_y)
         loss_ce = F.binary_cross_entropy_with_logits(notears_pos[:, -1], all_y.float())
 
-        loss_rec = F.mse_loss(notears_pos,
-                              dag_inputs.detach(),
-                              reduction='sum') / all_f.size(0)
+        # constraint weights
+        self.notears_mlp.weight_pos.data.clamp_(0, None)
+        self.notears_mlp.weight_neg.data.clamp_(0, None)
+        self.notears_mlp.weight_pos.data.fill_diagonal_(0)
+        self.notears_mlp.weight_neg.data.fill_diagonal_(0)
 
         h_val = self.notears_mlp.h_func()
         penalty = 0.5 * self.rho * h_val * h_val + self.alpha * h_val
-        l2_reg = 0.5 * self.lambda2 * self.notears_mlp.l2_reg()
-        l1_reg = self.lambda1 * self.notears_mlp.fc1_l1_reg()
-        loss_dag = loss_rec + penalty + l2_reg + l1_reg
-        loss = loss_ce + 0.00001 * loss_dag
+        l1_reg = self.lambda1 * self.notears_mlp.w_l1_reg()
+
+        if kwargs["step"] % 50 == 0:
+            self.train_dag = ~self.train_dag
+            if self.h > 1.0:
+                self.train_dag = True
+
+        loss_rec = F.mse_loss(notears_pos[:, :-1],
+                              dag_inputs[:, :-1].detach(),
+                              reduction='sum') / all_f.size(0) * 0.5
+
+        loss_dag = loss_rec + penalty + l1_reg
+        if kwargs["step"] < 100:
+            # Warmup phase
+            loss = loss_ce + loss_dag
+        elif self.train_dag:
+            # train dag
+            for p in self.featurizer.parameters():
+                p.requires_grad = False
+            for p in self.notears_mlp.parameters():
+                p.requires_grad = True
+            loss = loss_ce + loss_dag
+        else:
+            # train featurizer
+            for p in self.featurizer.parameters():
+                p.requires_grad = True
+            for p in self.notears_mlp.parameters():
+                p.requires_grad = False
+            loss = loss_ce + loss_rec
+
         self.h = h_val.item()
 
         self.notears_optimizer.zero_grad()
@@ -284,18 +319,13 @@ class DAGDG(ERM):
         self.notears_optimizer.step()
         self.optimizer.step()
 
-        h_new = self.notears_mlp.h_func().item()
-        if h_new > 0.8 * self.h and self.rho < self.rho_max:
-            self.rho *= 10
-            self.alpha += self.rho * h_new
-        self.h = h_new
-
         return {"loss": loss.item(), "loss_ce": loss_ce.item(), "loss_rec": loss_rec.item(),
-                "penalty": penalty.item(), "l2_reg": l2_reg.item(), "l1_reg": l1_reg.item()}
+                "penalty": penalty.item(), "l1_reg": l1_reg.item()}
 
     def predict(self, x):
         f = self.featurizer(x)
         dag_inputs = torch.cat([f, torch.zeros(f.size(0), 1, device=f.device)], dim=1)
+        dag_inputs = dag_inputs - dag_inputs.mean(dim=0, keepdim=True)
         notears_f = self.notears_mlp(dag_inputs)
         logits = torch.sigmoid(notears_f[:, -1:])
         logits = torch.cat([1.0 - logits, logits], dim=1)
