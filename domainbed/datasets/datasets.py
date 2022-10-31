@@ -124,15 +124,15 @@ class ColoredMNIST(MultipleEnvironmentMNIST):
     def __init__(self, root):
         super(ColoredMNIST, self).__init__(
             root,
-            [0.1, 0.2, 0.9],
+            [0.9 , 0.1, 0.2],
             self.color_dataset,
-            (2, 28, 28),
+            (2, 14, 14),
             2,
         )
 
     def color_dataset(self, images, labels, environment):
-        # # Subsample 2x for computational convenience
-        # images = images.reshape((-1, 28, 28))[:, ::2, ::2]
+        # Subsample 2x for computational convenience
+        images = images.reshape((-1, 28, 28))[:, ::2, ::2]
         # Assign a binary label based on the digit
         labels = (labels < 5).float()
         # Flip label with probability 0.25

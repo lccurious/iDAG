@@ -9,12 +9,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.autograd as autograd
 import numpy as np
+np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
 
 #  import higher
 
 from domainbed import networks
 from domainbed.lib.misc import random_pairs_of_minibatches
-from domainbed.optimizers import get_optimizer
+from domainbed.optimizers import get_optimizer, LBFGSBScipy
+from domainbed import losses
 
 from domainbed.models.resnet_mixstyle import (
     resnet18_mixstyle_L234_p0d5_a0d1,
@@ -29,6 +31,21 @@ from domainbed.models.resnet_mixstyle2 import (
 def to_minibatch(x, y):
     minibatches = list(zip(x, y))
     return minibatches
+
+
+class DAGWeightConstraint(object):
+    def __init__(self, d, k):
+        self.d = d
+        self.k = k
+
+    def __call__(self, module):
+        if hasattr(module, 'weight'):
+            w = module.weight.data
+            # manipulate the parameters constraints
+            w = w.clamp(0, None)
+            for i in range(self.d):
+                w[i * self.k:i * self.k + self.k, i].zero_()
+            module.weight.data = w
 
 
 class Algorithm(torch.nn.Module):

@@ -23,6 +23,10 @@ def _hparams(algorithm, dataset, random_state):
     hparams["freeze_bn"] = (True, True)
     hparams["pretrained"] = (True, True)  # only for ResNet
 
+    if dataset in ["ColoredMNIST"]:
+        hparams["hidden_dim"] = (160, 390)
+        hparams["grayscale_model"] = (False, False)
+
     if dataset not in SMALL_IMAGES:
         hparams["lr"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
         if dataset == "DomainNet":
@@ -78,7 +82,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["rsc_b_drop_factor"] = (1 / 3, random_state.uniform(0, 0.5))
     elif algorithm == "SagNet":
         hparams["sag_w_adv"] = (0.1, 10 ** random_state.uniform(-2, 1))
-    elif algorithm == "IRM":
+    elif algorithm in ["IRM", "DAGIRM"]:
         hparams["irm_lambda"] = (1e2, 10 ** random_state.uniform(-1, 5))
         hparams["irm_penalty_anneal_iters"] = (
             500,
@@ -106,6 +110,13 @@ def _hparams(algorithm, dataset, random_state):
         hparams["beta"] = (1.0, 1.0)
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
+    elif algorithm in ["NotearsERM", "DAGDG"]:
+        hparams["lambda1"] = (0.00001, 0.001)
+        hparams["lambda2"] = (0.01, 0.001)
+        hparams["notears_max_iter"] = (1, 100)
+        hparams["h_tol"] = (1e-8, 1e-8)
+        hparams["rho_max"] = (1e+8, 1e+16)
+        hparams["w_threshold"] = (0.3, 0.3)
 
     return hparams
 
