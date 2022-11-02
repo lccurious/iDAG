@@ -452,9 +452,9 @@ class NotearsClassifier(nn.Module):
         super(NotearsClassifier, self).__init__()
         self.dims = dims
         self.num_classes = num_classes
-        self.register_buffer("_I", torch.eye(dims + 1))
         self.weight_pos = nn.Parameter(torch.zeros(dims + 1, dims + 1))
         self.weight_neg = nn.Parameter(torch.zeros(dims + 1, dims + 1))
+        self.register_buffer("_I", torch.eye(dims + 1))
         self.register_buffer("_repeats", torch.ones(dims + 1).long())
         self._repeats[-1] *= num_classes
 

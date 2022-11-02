@@ -1,7 +1,7 @@
 # Default update config
 # Config order: hparams_registry -> config.yaml -> CLI
 
-swad: False # LossValley
+swad: LossValley
 swad_kwargs:
   n_converge: 3
   n_tolerance: 6

@@ -15,7 +15,7 @@ np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
 
 from domainbed import networks
 from domainbed.lib.misc import random_pairs_of_minibatches
-from domainbed.optimizers import get_optimizer, LBFGSBScipy
+from domainbed.optimizers import get_optimizer
 from domainbed import losses
 
 from domainbed.models.resnet_mixstyle import (
@@ -189,13 +189,11 @@ class DAGDG(Algorithm):
         self.network = nn.Sequential(self.featurizer, self.classifier)
         self.dag_mlp = networks.NotearsClassifier(self.featurizer.n_outputs, num_classes)
         self.dag_mlp.weight_pos.data[:-1, -1].fill_(1.0)
-        self.dag_dims = self.featurizer.n_outputs + 1
         self.proto_m = self.hparams["ema_ratio"]
         self.lambda1 = self.hparams["lambda1"]
         self.rho = self.hparams["rho_max"]
         self.alpha = self.rho
 
-        # create the queue
         self.register_buffer(
             "prototypes_y",
             torch.zeros(num_classes, self.featurizer.n_outputs))
@@ -229,8 +227,8 @@ class DAGDG(Algorithm):
         all_masked_f = self.dag_mlp(all_f)
         
         for f, masked_f, label_y, label_d in zip(all_f, all_masked_f, all_y, domain_labels):
-            self.prototypes[label_d, label_y] = self.prototypes[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f
-            self.prototypes_y[label_y] = self.prototypes_y[label_y] * self.proto_m + (1 - self.proto_m) * masked_f
+            self.prototypes[label_d, label_y] = self.prototypes[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f.detach()
+            self.prototypes_y[label_y] = self.prototypes_y[label_y] * self.proto_m + (1 - self.proto_m) * masked_f.detach()
         self.prototypes = F.normalize(self.prototypes, p=2, dim=2)
         self.prototypes_y = F.normalize(self.prototypes_y, p=2, dim=1)
 
@@ -281,33 +279,26 @@ class DAGDG(Algorithm):
         # constraint DAG weights
         self.dag_mlp.projection()
 
-        return {"loss": loss.item(), "loss_ce": loss_ce.item(), "loss_rec": loss_rec.item(),
-                "penalty": penalty.item(), "l1_reg": l1_reg.item(), "loss_contr": loss_contr.item(),
-                "mask_ratio": self.dag_mlp.masked_ratio().item()}
+        return {"loss": loss.item(), "ce": loss_ce.item(), "l2": loss_rec.item(),
+                "penalty": penalty.item(), "l1": l1_reg.item(), "cl": loss_contr.item(),
+                "mask": self.dag_mlp.masked_ratio().item()}
 
     def predict(self, x):
         f = self.featurizer(x)
         masked_f = self.dag_mlp(f)
         return self.classifier(masked_f)
 
-    @torch.no_grad()
-    def _dequeue_and_enqueue(self, f_sy, f_s, y, domain_labels):
+    def clone(self):
+        clone = copy.deepcopy(self)
+        params = [
+            {"params": clone.network.parameters()},
+            {"params": clone.dag_mlp.parameters()}
+        ]
+        clone.optimizer = self.new_optimizer(params)
+        clone.optimizer.load_state_dict(self.optimizer.state_dict())
 
-        # gather keys before updating queue
-        batch_size = f_sy.size(0)
-
-        ptr = int(self.queue_ptr)
-        assert self.hparams['queue_length'] % batch_size == 0
-
-        # replace the keys at ptr (dequeue and enqueue)
-        self.queue_sy[ptr:ptr + batch_size, :] = f_sy
-        self.queue_s[ptr:ptr + batch_size, :] = f_s
-        self.queue_label[ptr:ptr + batch_size, :] = y
-        self.queue_domain[ptr:ptr + batch_size, :] = domain_labels
-        ptr = (ptr + batch_size) % self.hparams['queue_length']
-        self.queue_ptr[0] = ptr
-
-
+        return clone
+   
 class DRDA(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DRDA, self).__init__(input_shape, num_classes, num_domains, hparams)
