@@ -291,7 +291,7 @@ class TraceExpm(torch.autograd.Function):
     @staticmethod
     def forward(ctx, input):
         # detach so we can cast to NumPy
-        E = slin.expm(input.detach().numpy())
+        E = torch.matrix_exp(input.detach().numpy())
         f = np.trace(E)
         E = torch.from_numpy(E)
         ctx.save_for_backward(E)
@@ -411,7 +411,7 @@ class LinearNotears(nn.Module):
         super(LinearNotears, self).__init__()
         self.dims = dims
         self.loss_type = loss_type
-        self.register_buffer("_I", torch.zeros(dims, dims))
+        self.register_buffer("_I", torch.eye(dims))
         self.weight_pos = nn.Parameter(torch.zeros(dims, dims))
         self.weight_neg = nn.Parameter(torch.zeros(dims, dims))
 
@@ -448,22 +448,52 @@ class LinearNotears(nn.Module):
 
 
 class NotearsClassifier(nn.Module):
-    def __init__(self, dims, hidden_layers=[10], bias=True):
+    def __init__(self, dims, num_classes):
         super(NotearsClassifier, self).__init__()
         self.dims = dims
-        self.register_buffer("_identity", torch.eye(dims))
-        # fc1: variable spliting for l1
-        self.fc1_pos = nn.Linear(dims, dims * hidden_layers[0], bias=bias)
-        self.fc1_neg = nn.Linear(dims, dims * hidden_layers[0], bias=bias)
-        # fc2: local linear layers
-        layers = []
-        for l in range(len(hidden_layers) - 1):
-            layers.append(nn.Sigmoid())
-            layers.append(LocallyConnected(d, hidden_layers[l], hidden_layers[l + 1], bias=bias))
-        self.fc2 = nn.Sequential(*layers)
+        self.num_classes = num_classes
+        self.register_buffer("_I", torch.eye(dims + 1))
+        self.weight_pos = nn.Parameter(torch.zeros(dims + 1, dims + 1))
+        self.weight_neg = nn.Parameter(torch.zeros(dims + 1, dims + 1))
+        self.register_buffer("_repeats", torch.ones(dims + 1).long())
+        self._repeats[-1] *= num_classes
 
-    # def forward(self, x, label=None):
-    #     torch.einsum("ij,bik->bjk", self.fc1_)
-    #     x = self.fc1_pos(x) - self.fc1_neg(x)
+    def _adj(self):
+        return self.weight_pos - self.weight_neg
 
+    def h_func(self):
+        W = self._adj()
+        E = torch.matrix_exp(W * W)
+        h = torch.trace(E) - self.dims - 1
+        return h
+    
+    def w_l1_reg(self):
+        reg = torch.sum(self.weight_pos + self.weight_neg)
+        return reg
+    
+    def forward(self, x, y=None):
+        W = self._adj()
+        if y is not None:
+            one_hot = F.one_hot(y)
+            x_aug = torch.cat((x, one_hot), dim=1)
+            # x: n_outputs + num_classes
+            W_aug = torch.repeat_interleave(W, self._repeats, dim=0)
+            M = x_aug @ W_aug
+            masked_x = x * W[:self.dims, -1].unsqueeze(0)
+            # reconstruct variables, classification logits
+            return M[:, :self.dims], masked_x
+        else:
+            masked_x = x * W[:self.dims, -1].unsqueeze(0).detach()
+            return masked_x
 
+    @torch.no_grad()
+    def projection(self):
+        self.weight_pos.data.clamp_(0, None)
+        self.weight_neg.data.clamp_(0, None)
+        self.weight_pos.data.fill_diagonal_(0)
+        self.weight_neg.data.fill_diagonal_(0)
+
+    @torch.no_grad()
+    def masked_ratio(self):
+        W = self._adj()
+        return W[:self.dims, -1].mean()

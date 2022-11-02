@@ -24,7 +24,7 @@ def _hparams(algorithm, dataset, random_state):
     hparams["pretrained"] = (True, True)  # only for ResNet
 
     if dataset in ["ColoredMNIST"]:
-        hparams["hidden_dim"] = (160, 390)
+        hparams["hidden_dim"] = (128, 390)
         hparams["grayscale_model"] = (False, False)
 
     if dataset not in SMALL_IMAGES:
@@ -44,11 +44,7 @@ def _hparams(algorithm, dataset, random_state):
     else:
         hparams["weight_decay"] = (0.0, 10 ** random_state.uniform(-6, -2))
 
-    if algorithm in ["DAGDG"]:
-        hparams["temperature"] = (0.07, 1.0)
-        hparams["ema_ratio"] = (0.99, 0.99)
-        hparams["factor_dim"] = (128, 128)
-    elif algorithm in ["DRDA"]:
+    if algorithm in ["DRDA"]:
         hparams["temperature"] = (0.07, 1.0)
         hparams["ema_ratio"] = (0.3, 0.3)
     elif algorithm in ["SupervisedTreeWasserstein"]:
@@ -111,11 +107,15 @@ def _hparams(algorithm, dataset, random_state):
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
     elif algorithm in ["NotearsERM", "DAGDG"]:
-        hparams["lambda1"] = (0.00001, 0.001)
+        hparams["dag_anneal_steps"] = (200, 200)
+        hparams["temperature"] = (0.07, 1.0)
+        hparams["ema_ratio"] = (0.99, 0.99)
+        hparams["factor_dim"] = (128, 128)
+        hparams["lambda1"] = (0.0, 0.001)
         hparams["lambda2"] = (0.01, 0.001)
         hparams["notears_max_iter"] = (1, 100)
         hparams["h_tol"] = (1e-8, 1e-8)
-        hparams["rho_max"] = (1e+8, 1e+16)
+        hparams["rho_max"] = (100.0, 1e+16)
         hparams["w_threshold"] = (0.3, 0.3)
 
     return hparams
