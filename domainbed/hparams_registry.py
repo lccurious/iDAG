@@ -106,16 +106,16 @@ def _hparams(algorithm, dataset, random_state):
         hparams["beta"] = (1.0, 1.0)
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
-    elif algorithm in ["NotearsERM", "DAGDG"]:
-        hparams["dag_anneal_steps"] = (200, 200)
-        hparams["temperature"] = (0.07, 1.0)
-        hparams["ema_ratio"] = (0.99, 0.99)
-        hparams["factor_dim"] = (128, 128)
-        hparams["lambda1"] = (0.0, 0.001)
-        hparams["lambda2"] = (0.01, 0.001)
-        hparams["notears_max_iter"] = (1, 100)
+    elif algorithm in ["DAGDG"]:
+        hparams["dag_anneal_steps"] = (200, random_state.choice([200, 400, 600, 800]))
+        hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.7))
+        hparams["ema_ratio"] = (0.99, random_state.uniform(0.7, 0.999))
+        hparams["lambda1"] = (0.01, random_state.uniform(0.001, 0.1))
+        hparams["lambda2"] = (0.01, random_state.uniform(0.001, 1e4))
         hparams["h_tol"] = (1e-8, 1e-8)
-        hparams["rho_max"] = (100.0, 1e+16)
+        hparams["rho_max"] = (100.0, random_state.uniform(1.0, 1e+16))
+        hparams["rho"] = (1.0, random_state.uniform(1.0, 1e2))
+        hparams["alpha"] = (1.0, random_state.uniform(1.0, 1e2))
         hparams["w_threshold"] = (0.3, 0.3)
 
     return hparams

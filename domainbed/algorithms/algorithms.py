@@ -134,11 +134,11 @@ class PrototypePLoss(nn.Module):
         self.label = torch.arange(num_classes)
         self.domain_label = torch.arange(num_domains)
         self.temperature = temperature
-    
+
     def forward(self, feature, prototypes, labels):
         feature = F.normalize(feature, p=2, dim=1)
         feature_prototype = torch.einsum('nc,mc->nm', feature, prototypes)
-        
+
         feature_pairwise = torch.einsum('ic,jc->ij', feature, feature)
         mask_neg = torch.not_equal(labels, labels.T)
         l_neg = feature_pairwise * mask_neg
@@ -158,11 +158,11 @@ class MultiDomainPrototypePLoss(nn.Module):
         self.label = torch.arange(num_classes)
         self.domain_label = torch.arange(num_domains)
         self.temperature = temperature
-    
+
     def forward(self, feature, prototypes, labels, domain_labels):
         feature = F.normalize(feature, p=2, dim=1)
         feature_prototype = torch.einsum('nc,mc->nm', feature, prototypes.reshape(-1, prototypes.size(-1)))
-        
+
         feature_pairwise = torch.einsum('ic,jc->ij', feature, feature)
         mask_neg = torch.logical_or(torch.not_equal(labels, labels.T), torch.not_equal(domain_labels, domain_labels))
         l_neg = feature_pairwise * mask_neg
@@ -186,13 +186,17 @@ class DAGDG(Algorithm):
                                     hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
+        self.inv_classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
         self.network = nn.Sequential(self.featurizer, self.classifier)
         self.dag_mlp = networks.NotearsClassifier(self.featurizer.n_outputs, num_classes)
         self.dag_mlp.weight_pos.data[:-1, -1].fill_(1.0)
         self.proto_m = self.hparams["ema_ratio"]
         self.lambda1 = self.hparams["lambda1"]
-        self.rho = self.hparams["rho_max"]
-        self.alpha = self.rho
+        self.lambda2 = self.hparams["lambda2"]
+        self.rho_max = self.hparams["rho_max"]
+        self.alpha = self.hparams["alpha"]
+        self.rho = self.hparams["rho"]
+        self._h_val = np.inf
 
         self.register_buffer(
             "prototypes_y",
@@ -206,6 +210,7 @@ class DAGDG(Algorithm):
 
         params = [
             {"params": self.network.parameters()},
+            {"params": self.inv_classifier.parameters()},
             {"params": self.dag_mlp.parameters()},
         ]
         self.optimizer = get_optimizer(
@@ -225,30 +230,41 @@ class DAGDG(Algorithm):
 
         all_f = self.featurizer(all_x)
         all_masked_f = self.dag_mlp(all_f)
-        
+
         for f, masked_f, label_y, label_d in zip(all_f, all_masked_f, all_y, domain_labels):
             self.prototypes[label_d, label_y] = self.prototypes[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f.detach()
             self.prototypes_y[label_y] = self.prototypes_y[label_y] * self.proto_m + (1 - self.proto_m) * masked_f.detach()
         self.prototypes = F.normalize(self.prototypes, p=2, dim=2)
         self.prototypes_y = F.normalize(self.prototypes_y, p=2, dim=1)
 
-        # compute protoyptical logits
         prototypes = self.prototypes.clone().detach()
         prototypes_y = self.prototypes_y.clone().detach()
 
         proto_rec, masked_proto = self.dag_mlp(
             x=prototypes.view(self.num_domains * self.num_classes, -1),
             y=self.prototypes_label)
-        loss_rec = F.mse_loss(proto_rec, prototypes.view(self.num_domains * self.num_classes, -1), reduction='sum') / prototypes.size(0)
+
+        # reconstruction loss
+        loss_rec = F.cosine_embedding_loss(proto_rec, prototypes.view(self.num_domains * self.num_classes, -1),
+                                           torch.ones(self.num_domains * self.num_classes, device=all_x.device))
         loss_rec += F.cross_entropy(
-            self.classifier(masked_proto),
+            self.inv_classifier(masked_proto),
             self.prototypes_label)
         h_val = self.dag_mlp.h_func()
         penalty = 0.5 * self.rho * h_val * h_val + self.alpha * h_val
         l1_reg = self.lambda1 * self.dag_mlp.w_l1_reg()
-        loss_dag = loss_rec + penalty + l1_reg
 
-        loss_ce = F.cross_entropy(self.classifier(all_masked_f), all_y)
+        # update the DAG hyper-parameters
+        if kwargs['step'] % 100 == 0:
+            if self.rho < self.rho_max and h_val > 0.25 * self._h_val:
+                self.rho *= 10
+                self.alpha += self.rho * h_val.item()
+            self._h_val = h_val.item()
+
+        loss_dag = self.lambda2 * loss_rec + penalty + l1_reg
+
+        loss_ce = F.cross_entropy(self.classifier(all_f), all_y)
+        loss_inv_ce = F.cross_entropy(self.inv_classifier(all_masked_f), all_y)
 
         loss_contr_mu = self.loss_proto_con(all_masked_f, prototypes_y, all_y)
         loss_contr_nu = self.loss_multi_proto_con(all_f, prototypes, all_y, domain_labels)
@@ -258,6 +274,7 @@ class DAGDG(Algorithm):
             # avoid the gradient jump
             params = [
                 {"params": self.network.parameters()},
+                {"params": self.inv_classifier.parameters()},
                 {"params": self.dag_mlp.parameters()},
             ]
             self.optimizer = get_optimizer(
@@ -268,9 +285,9 @@ class DAGDG(Algorithm):
             )
 
         if kwargs['step'] >= self.hparams["dag_anneal_steps"]:
-            loss = loss_ce + loss_dag + loss_contr_mu + loss_contr_nu
+            loss = loss_ce + loss_inv_ce + loss_dag + loss_contr_mu + loss_contr_nu
         else:
-            loss = loss_ce + loss_contr_nu
+            loss = loss_ce + loss_inv_ce + loss_contr_nu
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -286,7 +303,7 @@ class DAGDG(Algorithm):
     def predict(self, x):
         f = self.featurizer(x)
         masked_f = self.dag_mlp(f)
-        return self.classifier(masked_f)
+        return self.inv_classifier(masked_f)
 
     def clone(self):
         clone = copy.deepcopy(self)
@@ -298,7 +315,7 @@ class DAGDG(Algorithm):
         clone.optimizer.load_state_dict(self.optimizer.state_dict())
 
         return clone
-   
+
 class DRDA(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DRDA, self).__init__(input_shape, num_classes, num_domains, hparams)
