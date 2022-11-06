@@ -501,4 +501,107 @@ class NotearsClassifier(nn.Module):
     @torch.no_grad()
     def masked_ratio(self):
         W = self._adj()
-        return W[:self.dims, -1].mean()
+        return torch.norm(W[:self.dims, -1], p=0)
+
+
+def encoder(hparams):
+    if hparams["resnet18"] == False:
+        n_outputs = 2048
+    else:
+        n_outputs = 512
+    if hparams['dataset'] == "OfficeHome":
+        scale_weights = 12
+        pcl_weights = 1
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 512
+        hparams['out_dim'] = 512
+        encoder = nn.Sequential(
+            nn.Linear(n_outputs, hparams['hidden_size']),
+            nn.BatchNorm1d(hparams['hidden_size']),
+            nn.ReLU(inplace=True),
+            dropout,
+            nn.Linear(hparams['hidden_size'], hparams['out_dim']),
+        )
+    elif hparams['dataset'] == "PACS":
+        scale_weights = 12
+        pcl_weights = 1
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 512
+        hparams['out_dim'] = 256
+        encoder = nn.Sequential(
+            nn.Linear(n_outputs, hparams['hidden_size']),
+            nn.BatchNorm1d(hparams['hidden_size']),
+            nn.ReLU(inplace=True),
+            dropout,
+            nn.Linear(hparams['hidden_size'], hparams['out_dim']),
+        )
+
+    elif hparams['dataset'] == "TerraIncognita":
+        scale_weights = 12
+        pcl_weights = 1
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 512
+        hparams['out_dim'] = 512
+        encoder = nn.Sequential(
+            nn.Linear(n_outputs, hparams['hidden_size']),
+            nn.BatchNorm1d(hparams['hidden_size']),
+            nn.ReLU(inplace=True),
+            dropout,
+            nn.Linear(hparams['hidden_size'], hparams['hidden_size']),
+            nn.BatchNorm1d(hparams['hidden_size']),
+            nn.ReLU(inplace=True),
+            dropout,
+            nn.Linear(hparams['hidden_size'], hparams['out_dim']),
+        )
+    else:
+        pass
+
+    return encoder, scale_weights, pcl_weights
+
+
+def fea_proj(hparams):
+    if hparams['dataset'] == "OfficeHome":
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 512
+        hparams['out_dim'] = 512
+        fea_proj = nn.Sequential(
+            nn.Linear(hparams['out_dim'],
+                      hparams['hidden_size']),
+            dropout,
+            nn.Linear(hparams['hidden_size'],
+                      hparams['out_dim']),
+        )
+        fc_proj = nn.Parameter(
+            torch.FloatTensor(hparams['out_dim'],
+                              hparams['out_dim'])
+        )
+    elif hparams['dataset'] == "PACS":
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 256
+        hparams['out_dim'] = 256
+        fea_proj = nn.Sequential(
+            nn.Linear(hparams['out_dim'],
+                      hparams['out_dim']),
+        )
+        fc_proj = nn.Parameter(
+            torch.FloatTensor(hparams['out_dim'],
+                              hparams['out_dim'])
+        )
+
+    elif hparams['dataset'] == "TerraIncognita":
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 512
+        hparams['out_dim'] = 512
+        fea_proj = nn.Sequential(
+            nn.Linear(hparams['out_dim'],
+                      hparams['out_dim']),
+        )
+        fc_proj = nn.Parameter(
+            torch.FloatTensor(hparams['out_dim'],
+                              hparams['out_dim'])
+        )
+    else:
+        pass
+
+    return fea_proj, fc_proj
+

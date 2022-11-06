@@ -184,12 +184,17 @@ class DAGDG(Algorithm):
                                     num_classes,
                                     num_domains,
                                     hparams)
+        hparams["dataset"] = "OfficeHome"
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
-        self.inv_classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
-        self.network = nn.Sequential(self.featurizer, self.classifier)
-        self.dag_mlp = networks.NotearsClassifier(self.featurizer.n_outputs, num_classes)
+        self.encoder, _, _ = networks.encoder(hparams)
+        self._initialize_weights(self.encoder)
+
+        self.dag_mlp = networks.NotearsClassifier(hparams['out_dim'], num_classes)
         self.dag_mlp.weight_pos.data[:-1, -1].fill_(1.0)
+
+        self.inv_classifier = nn.Linear(hparams['out_dim'], num_classes)
+        self.network = nn.Sequential(self.featurizer, self.encoder, self.dag_mlp, self.inv_classifier)
+
         self.proto_m = self.hparams["ema_ratio"]
         self.lambda1 = self.hparams["lambda1"]
         self.lambda2 = self.hparams["lambda2"]
@@ -200,18 +205,16 @@ class DAGDG(Algorithm):
 
         self.register_buffer(
             "prototypes_y",
-            torch.zeros(num_classes, self.featurizer.n_outputs))
+            torch.zeros(num_classes, hparams['out_dim']))
         self.register_buffer(
             "prototypes",
-            torch.zeros(num_domains, num_classes, self.featurizer.n_outputs))
+            torch.zeros(num_domains, num_classes, hparams['out_dim']))
         self.register_buffer(
             "prototypes_label",
             torch.arange(num_classes).repeat(num_domains))
 
         params = [
             {"params": self.network.parameters()},
-            {"params": self.inv_classifier.parameters()},
-            {"params": self.dag_mlp.parameters()},
         ]
         self.optimizer = get_optimizer(
             hparams["optimizer"],
@@ -222,6 +225,21 @@ class DAGDG(Algorithm):
         self.loss_proto_con = PrototypePLoss(num_classes, num_domains, hparams['temperature'])
         self.loss_multi_proto_con = MultiDomainPrototypePLoss(num_classes, num_domains, hparams['temperature'])
 
+    def _initialize_weights(self, modules):
+        for m in modules:
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
+
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
         all_y = torch.cat(y)
@@ -229,6 +247,7 @@ class DAGDG(Algorithm):
         domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long().to(all_x.device)
 
         all_f = self.featurizer(all_x)
+        all_f = self.encoder(all_f)
         all_masked_f = self.dag_mlp(all_f)
 
         for f, masked_f, label_y, label_d in zip(all_f, all_masked_f, all_y, domain_labels):
@@ -237,8 +256,8 @@ class DAGDG(Algorithm):
         self.prototypes = F.normalize(self.prototypes, p=2, dim=2)
         self.prototypes_y = F.normalize(self.prototypes_y, p=2, dim=1)
 
-        prototypes = self.prototypes.clone().detach()
-        prototypes_y = self.prototypes_y.clone().detach()
+        prototypes = self.prototypes.detach().clone()
+        prototypes_y = self.prototypes_y.detach().clone()
 
         proto_rec, masked_proto = self.dag_mlp(
             x=prototypes.view(self.num_domains * self.num_classes, -1),
@@ -250,6 +269,7 @@ class DAGDG(Algorithm):
         loss_rec += F.cross_entropy(
             self.inv_classifier(masked_proto),
             self.prototypes_label)
+        loss_rec = self.lambda2 * loss_rec
         h_val = self.dag_mlp.h_func()
         penalty = 0.5 * self.rho * h_val * h_val + self.alpha * h_val
         l1_reg = self.lambda1 * self.dag_mlp.w_l1_reg()
@@ -261,9 +281,8 @@ class DAGDG(Algorithm):
                 self.alpha += self.rho * h_val.item()
             self._h_val = h_val.item()
 
-        loss_dag = self.lambda2 * loss_rec + penalty + l1_reg
+        loss_dag = loss_rec + penalty + l1_reg
 
-        loss_ce = F.cross_entropy(self.classifier(all_f), all_y)
         loss_inv_ce = F.cross_entropy(self.inv_classifier(all_masked_f), all_y)
 
         loss_contr_mu = self.loss_proto_con(all_masked_f, prototypes_y, all_y)
@@ -274,8 +293,6 @@ class DAGDG(Algorithm):
             # avoid the gradient jump
             params = [
                 {"params": self.network.parameters()},
-                {"params": self.inv_classifier.parameters()},
-                {"params": self.dag_mlp.parameters()},
             ]
             self.optimizer = get_optimizer(
                 self.hparams["optimizer"],
@@ -285,9 +302,9 @@ class DAGDG(Algorithm):
             )
 
         if kwargs['step'] >= self.hparams["dag_anneal_steps"]:
-            loss = loss_ce + loss_inv_ce + loss_dag + loss_contr_mu + loss_contr_nu
+            loss = loss_inv_ce + loss_dag + loss_contr_mu + loss_contr_nu
         else:
-            loss = loss_ce + loss_inv_ce + loss_contr_nu
+            loss = loss_inv_ce + loss_contr_nu + loss_rec
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -296,12 +313,17 @@ class DAGDG(Algorithm):
         # constraint DAG weights
         self.dag_mlp.projection()
 
-        return {"loss": loss.item(), "ce": loss_ce.item(), "l2": loss_rec.item(),
-                "penalty": penalty.item(), "l1": l1_reg.item(), "cl": loss_contr.item(),
+        return {"loss": loss.item(),
+                "inv_ce": loss_inv_ce.item(),
+                "l2": loss_rec.item(),
+                "penalty": penalty.item(),
+                "l1": l1_reg.item(),
+                "cl": loss_contr.item(),
                 "mask": self.dag_mlp.masked_ratio().item()}
 
     def predict(self, x):
         f = self.featurizer(x)
+        f = self.encoder(f)
         masked_f = self.dag_mlp(f)
         return self.inv_classifier(masked_f)
 
@@ -309,7 +331,6 @@ class DAGDG(Algorithm):
         clone = copy.deepcopy(self)
         params = [
             {"params": clone.network.parameters()},
-            {"params": clone.dag_mlp.parameters()}
         ]
         clone.optimizer = self.new_optimizer(params)
         clone.optimizer.load_state_dict(self.optimizer.state_dict())
