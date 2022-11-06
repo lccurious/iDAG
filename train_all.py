@@ -1,7 +1,9 @@
+import os
 import argparse
 import collections
 import random
 import sys
+import json
 from pathlib import Path
 
 import numpy as np
@@ -26,6 +28,10 @@ def main():
     parser.add_argument("--data_dir", type=str, default="datadir/")
     parser.add_argument("--dataset", type=str, default="PACS")
     parser.add_argument("--algorithm", type=str, default="ERM")
+    parser.add_argument("--hparams", type=str,
+                        help='JSON-serialized hparams dict')
+    parser.add_argument("--hparams_seed", type=int, default=0,
+                        help='Seed for random hparams (0 means "default hparams")')
     parser.add_argument(
         "--trial_seed",
         type=int,
@@ -43,6 +49,7 @@ def main():
         help="Checkpoint every N steps. Default is dataset-dependent.",
     )
     parser.add_argument("--test_envs", type=int, nargs="+", default=None)  # sketch in PACS
+    parser.add_argument('--output_dir', type=str, default="train_output")
     parser.add_argument("--holdout_fraction", type=float, default=0.2)
     parser.add_argument("--model_save", default=None, type=int, help="Model save start step")
     parser.add_argument("--deterministic", action="store_true")
@@ -57,8 +64,18 @@ def main():
     parser.add_argument("--prebuild_loader", action="store_true", help="Pre-build eval loaders")
     args, left_argv = parser.parse_known_args()
 
+    # os.makedirs(args.output_dir, exist_ok=True)
+    # sys.stdout = misc.Tee(os.path.join(args.output_dir, 'out.txt'))
+    # sys.stderr = misc.Tee(os.path.join(args.output_dir, 'err.txt'))
+
     # setup hparams
-    hparams = hparams_registry.default_hparams(args.algorithm, args.dataset)
+    if args.hparams_seed == 0:
+        hparams = hparams_registry.default_hparams(args.algorithm, args.dataset)
+    else:
+        hparams = hparams_registry.random_hparams(args.algorithm, args.dataset,
+            misc.seed_hash(args.hparams_seed, args.trial_seed))
+    if args.hparams:
+        hparams.update(json.loads(args.hparams))
 
     keys = ["config.yaml"] + args.configs
     keys = [open(key, encoding="utf8") for key in keys]
@@ -78,7 +95,7 @@ def main():
     args.work_dir = Path(".")
     args.data_dir = Path(args.data_dir)
 
-    args.out_root = args.work_dir / Path("train_output") / args.dataset
+    args.out_root = args.work_dir / Path(args.output_dir) / args.dataset
     args.out_dir = args.out_root / args.unique_name
     args.out_dir.mkdir(exist_ok=True, parents=True)
 
@@ -142,6 +159,8 @@ def main():
 
     if not args.test_envs:
         args.test_envs = [[te] for te in range(len(dataset))]
+    else:
+        args.test_envs = [[te] for te in args.test_envs]
     logger.info(f"Target test envs = {args.test_envs}")
 
     ###########################################################################

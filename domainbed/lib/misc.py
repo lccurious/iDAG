@@ -6,6 +6,7 @@ Things that don't belong anywhere else
 
 import hashlib
 import os
+import sys
 import shutil
 import errno
 from datetime import datetime
@@ -79,6 +80,21 @@ def random_pairs_of_minibatches(minibatches):
         pairs.append(((xi[:min_n], yi[:min_n]), (xj[:min_n], yj[:min_n])))
 
     return pairs
+
+
+class Tee:
+    def __init__(self, fname, mode="a"):
+        self.stdout = sys.stdout
+        self.file = open(fname, mode)
+
+    def write(self, message):
+        self.stdout.write(message)
+        self.file.write(message)
+        self.flush()
+
+    def flush(self):
+        self.stdout.flush()
+        self.file.flush()
 
 
 ###########################################################

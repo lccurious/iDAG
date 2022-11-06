@@ -40,7 +40,7 @@ class Job:
 
         self.train_args = copy.deepcopy(train_args)
         self.train_args['output_dir'] = self.output_dir
-        command = ['python', 'train_all.py']
+        command = ['python', 'train_all.py', args_hash]
         for k, v in sorted(self.train_args.items()):
             if isinstance(v, list):
                 v = ' '.join([str(v_) for v_ in v])
@@ -97,7 +97,7 @@ def all_test_env_combinations(n):
             yield [i, j]
 
 def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparams, steps,
-    data_dir, task, holdout_fraction, single_test_envs, hparams):
+    data_dir, holdout_fraction, single_test_envs, hparams):
     args_list = []
     for trial_seed in range(n_trials):
         for dataset in dataset_names:
@@ -117,7 +117,6 @@ def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparam
                         train_args['holdout_fraction'] = holdout_fraction
                         train_args['hparams_seed'] = hparams_seed
                         train_args['data_dir'] = data_dir
-                        train_args['task'] = task
                         train_args['trial_seed'] = trial_seed
                         train_args['seed'] = misc.seed_hash(dataset,
                             algorithm, test_envs, hparams_seed, trial_seed)
@@ -141,7 +140,6 @@ if __name__ == "__main__":
     parser.add_argument('command', choices=['launch', 'delete_incomplete'])
     parser.add_argument('--datasets', nargs='+', type=str, default=DATASETS)
     parser.add_argument('--algorithms', nargs='+', type=str, default=algorithms.ALGORITHMS)
-    parser.add_argument('--task', type=str, default="domain_generalization")
     parser.add_argument('--n_hparams_from', type=int, default=0)
     parser.add_argument('--n_hparams', type=int, default=20)
     parser.add_argument('--output_dir', type=str, required=True)
@@ -164,7 +162,6 @@ if __name__ == "__main__":
         n_hparams=args.n_hparams,
         steps=args.steps,
         data_dir=args.data_dir,
-        task=args.task,
         holdout_fraction=args.holdout_fraction,
         single_test_envs=args.single_test_envs,
         hparams=args.hparams
