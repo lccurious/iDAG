@@ -6,6 +6,22 @@ from domainbed.lib import misc
 from domainbed.datasets import transforms as DBT
 
 
+DATASETS = [
+    # Debug
+    "Debug28",
+    "Debug224",
+    # Small images
+    "ColoredMNIST",
+    "RotatedMNIST",
+    # Big images
+    "VLCS",
+    "PACS",
+    "OfficeHome",
+    "TerraIncognita",
+    "DomainNet",
+]
+
+
 def set_transfroms(dset, data_type, hparams, algorithm_class=None):
     """
     Args:

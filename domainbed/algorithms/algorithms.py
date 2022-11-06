@@ -316,6 +316,7 @@ class DAGDG(Algorithm):
 
         return clone
 
+
 class DRDA(Algorithm):
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(DRDA, self).__init__(input_shape, num_classes, num_domains, hparams)
