@@ -264,10 +264,10 @@ class DAGDG(Algorithm):
             y=self.prototypes_label)
 
         # reconstruction loss
-        # loss_rec = F.cosine_embedding_loss(proto_rec, prototypes.view(self.num_domains * self.num_classes, -1),
-        #                                    torch.ones(self.num_domains * self.num_classes, device=all_x.device))
-        loss_rec = F.mse_loss(proto_rec,
-                              prototypes.view(self.num_domains * self.num_classes, -1), reduction='sum') / proto_rec.size(0)
+        loss_rec = F.cosine_embedding_loss(proto_rec, prototypes.view(self.num_domains * self.num_classes, -1),
+                                           torch.ones(self.num_domains * self.num_classes, device=all_x.device))
+        # loss_rec = F.mse_loss(proto_rec,
+        #                       prototypes.view(self.num_domains * self.num_classes, -1), reduction='sum') / proto_rec.size(0)
         loss_rec += F.cross_entropy(
             self.inv_classifier(masked_proto),
             self.prototypes_label)
