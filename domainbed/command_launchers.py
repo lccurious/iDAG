@@ -64,7 +64,7 @@ def multi_gpu_launcher(commands):
                     f'CUDA_VISIBLE_DEVICES={gpu_idx} {cmd}', shell=True)
                 procs_by_gpu[idx] = new_proc
                 break
-        time.sleep(1)
+        time.sleep(10)
 
     # Wait for the last few tasks to finish before returning
     for p in procs_by_gpu:

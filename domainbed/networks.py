@@ -487,8 +487,8 @@ class NotearsClassifier(nn.Module):
             # x_aug = torch.cat((x, one_hot), dim=1)
             # x: n_outputs + num_classes
             # W_aug = torch.repeat_interleave(W, self._repeats, dim=0)
-            x_aug = torch.cat((x, y.unsqueeze(1), dim=1))
-            M = x_aug @ W_aug
+            x_aug = torch.cat((x, y.unsqueeze(1)), dim=1)
+            M = x_aug @ W
             # masked_x = x * W[:self.dims, -1].unsqueeze(0)
             masked_x = x * W_sub[:self.dims, -1].unsqueeze(0)
             # reconstruct variables, classification logits

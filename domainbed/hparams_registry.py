@@ -31,9 +31,9 @@ def _hparams(algorithm, dataset, random_state):
     if dataset not in SMALL_IMAGES:
         hparams["lr"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
         if dataset == "DomainNet":
-            hparams["batch_size"] = (32, int(2 ** random_state.uniform(3, 5)))
+            hparams["batch_size"] = (32, 32) # int(2 ** random_state.uniform(3, 5)))
         else:
-            hparams["batch_size"] = (32, int(2 ** random_state.uniform(3, 5.5)))
+            hparams["batch_size"] = (32, 32) # int(2 ** random_state.uniform(3, 5.5)))
         if algorithm == "ARM":
             hparams["batch_size"] = (8, 8)
     else:
@@ -108,7 +108,7 @@ def _hparams(algorithm, dataset, random_state):
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
     elif algorithm in ["DAGDG"]:
-        hparams["dag_anneal_steps"] = (200, random_state.choice([200, 400, 600, 800]))
+        hparams["dag_anneal_steps"] = (200, int(random_state.choice([200, 400, 600, 800])))
         hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.7))
         hparams["ema_ratio"] = (0.99, random_state.uniform(0.7, 0.999))
         hparams["lambda1"] = (0.01, random_state.uniform(0.001, 0.1))
@@ -117,7 +117,6 @@ def _hparams(algorithm, dataset, random_state):
         hparams["rho_max"] = (100.0, random_state.uniform(1.0, 1e+16))
         hparams["rho"] = (1.0, random_state.uniform(1.0, 1e2))
         hparams["alpha"] = (1.0, random_state.uniform(1.0, 1e2))
-        hparams["w_threshold"] = (0.3, 0.3)
         hparams["weight_nu"] = (10.0, random_state.uniform(1.0, 1e2))
         hparams["weight_mu"] = (10.0, random_state.uniform(1.0, 1e2))
 
