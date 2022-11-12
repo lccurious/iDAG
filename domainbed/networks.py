@@ -454,6 +454,10 @@ class NotearsClassifier(nn.Module):
         self.num_classes = num_classes
         self.weight_pos = nn.Parameter(torch.zeros(dims + 1, dims + 1))
         self.weight_neg = nn.Parameter(torch.zeros(dims + 1, dims + 1))
+        # self.weight_pos = nn.Parameter(torch.triu(torch.rand(dims + 1, dims + 1), diagonal=1))
+        # self.weight_neg = nn.Parameter(torch.triu(torch.rand(dims + 1, dims + 1), diagonal=1))
+        # nn.init.kaiming_normal_(self.weight_pos, mode='fan_in')
+        # nn.init.kaiming_normal_(self.weight_neg, mode='fan_in')
         self.register_buffer("_I", torch.eye(dims + 1))
         self.register_buffer("_repeats", torch.ones(dims + 1).long())
         self._repeats[-1] *= num_classes
@@ -472,24 +476,32 @@ class NotearsClassifier(nn.Module):
         return h
 
     def w_l1_reg(self):
-        reg = torch.mean(self.weight_pos + self.weight_neg)
+        reg = torch.sum(self.weight_pos + self.weight_neg)
         return reg
 
     def forward(self, x, y=None):
         W = self._adj()
         W_sub = self._adj_sub()
         if y is not None:
-            one_hot = F.one_hot(y)
-            x_aug = torch.cat((x, one_hot), dim=1)
+            # one_hot = F.one_hot(y)
+            # x_aug = torch.cat((x, one_hot), dim=1)
             # x: n_outputs + num_classes
-            W_aug = torch.repeat_interleave(W, self._repeats, dim=0)
+            # W_aug = torch.repeat_interleave(W, self._repeats, dim=0)
+            x_aug = torch.cat((x, y.unsqueeze(1), dim=1))
             M = x_aug @ W_aug
+            # masked_x = x * W[:self.dims, -1].unsqueeze(0)
             masked_x = x * W_sub[:self.dims, -1].unsqueeze(0)
             # reconstruct variables, classification logits
             return M[:, :self.dims], masked_x
         else:
+            # masked_x = x * W[:self.dims, -1].unsqueeze(0).detach()
             masked_x = x * W_sub[:self.dims, -1].unsqueeze(0).detach()
             return masked_x
+
+    def mask_feature(self, x):
+        W_sub = self._adj_sub()
+        mask = W_sub[:self.dims, -1].unsqueeze(0).detach()
+        return x * mask
 
     @torch.no_grad()
     def projection(self):

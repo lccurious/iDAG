@@ -184,7 +184,6 @@ class DAGDG(Algorithm):
                                     num_classes,
                                     num_domains,
                                     hparams)
-        hparams["dataset"] = "OfficeHome"
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.encoder, _, _ = networks.encoder(hparams)
         self._initialize_weights(self.encoder)
@@ -193,6 +192,7 @@ class DAGDG(Algorithm):
         self.dag_mlp.weight_pos.data[:-1, -1].fill_(1.0)
 
         self.inv_classifier = nn.Linear(hparams['out_dim'], num_classes)
+        self.rec_classifier = nn.Linear(hparams['out_dim'], num_classes)
         self.network = nn.Sequential(self.featurizer, self.encoder, self.dag_mlp, self.inv_classifier)
 
         self.proto_m = self.hparams["ema_ratio"]
@@ -215,6 +215,7 @@ class DAGDG(Algorithm):
 
         params = [
             {"params": self.network.parameters()},
+            {"params": self.rec_classifier.parameters()},
         ]
         self.optimizer = get_optimizer(
             hparams["optimizer"],
@@ -248,7 +249,7 @@ class DAGDG(Algorithm):
 
         all_f = self.featurizer(all_x)
         all_f = self.encoder(all_f)
-        all_masked_f = self.dag_mlp(all_f)
+        all_masked_f = self.dag_mlp.mask_feature(all_f)
 
         for f, masked_f, label_y, label_d in zip(all_f, all_masked_f, all_y, domain_labels):
             self.prototypes[label_d, label_y] = self.prototypes[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f.detach()
@@ -269,7 +270,7 @@ class DAGDG(Algorithm):
         # loss_rec = F.mse_loss(proto_rec,
         #                       prototypes.view(self.num_domains * self.num_classes, -1), reduction='sum') / proto_rec.size(0)
         loss_rec += F.cross_entropy(
-            self.inv_classifier(masked_proto),
+            self.rec_classifier(masked_proto),
             self.prototypes_label)
         loss_rec = self.lambda2 * loss_rec
         h_val = self.dag_mlp.h_func()
@@ -287,8 +288,8 @@ class DAGDG(Algorithm):
 
         loss_inv_ce = F.cross_entropy(self.inv_classifier(all_masked_f), all_y)
 
-        loss_contr_mu = self.loss_proto_con(all_masked_f, prototypes_y, all_y)
-        loss_contr_nu = self.loss_multi_proto_con(all_f, prototypes, all_y, domain_labels)
+        loss_contr_mu = self.hparams["weight_mu"] * self.loss_proto_con(all_masked_f, prototypes_y, all_y)
+        loss_contr_nu = self.hparams["weight_nu"] * self.loss_multi_proto_con(all_f, prototypes, all_y, domain_labels)
         loss_contr = loss_contr_mu + loss_contr_nu
 
         if kwargs['step'] == self.hparams["dag_anneal_steps"]:
@@ -306,7 +307,7 @@ class DAGDG(Algorithm):
         if kwargs['step'] >= self.hparams["dag_anneal_steps"]:
             loss = loss_inv_ce + loss_dag + loss_contr_mu + loss_contr_nu
         else:
-            loss = loss_inv_ce + loss_contr_nu + loss_rec
+            loss = loss_inv_ce + loss_contr_nu
 
         self.optimizer.zero_grad()
         loss.backward()
@@ -326,7 +327,7 @@ class DAGDG(Algorithm):
     def predict(self, x):
         f = self.featurizer(x)
         f = self.encoder(f)
-        masked_f = self.dag_mlp(f)
+        masked_f = self.dag_mlp.mask_feature(f)
         return self.inv_classifier(masked_f)
 
     def clone(self):

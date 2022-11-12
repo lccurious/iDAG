@@ -118,6 +118,8 @@ def _hparams(algorithm, dataset, random_state):
         hparams["rho"] = (1.0, random_state.uniform(1.0, 1e2))
         hparams["alpha"] = (1.0, random_state.uniform(1.0, 1e2))
         hparams["w_threshold"] = (0.3, 0.3)
+        hparams["weight_nu"] = (10.0, random_state.uniform(1.0, 1e2))
+        hparams["weight_mu"] = (10.0, random_state.uniform(1.0, 1e2))
 
     return hparams
 

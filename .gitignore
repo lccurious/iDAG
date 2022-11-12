@@ -9,6 +9,5 @@ swa_plane_results/
 features/
 perturb_results/
 *.pdf
-*.sh
 *.ipynb
 data/
