@@ -1,5 +1,0 @@
-# Default update config
-# Config order: hparams_registry -> config.yaml -> CLI
-
-temperature: 1.0
-ema_ratio: 0.3

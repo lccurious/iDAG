@@ -191,12 +191,12 @@ def main():
     logger.info("Algorithm: %s" % args.algorithm)
     logger.info("Dataset: %s" % args.dataset)
 
-    table = PrettyTable(["Selection"] + dataset.environments + ["Avg."])
-    for key, row in results.items():
-        row.append(np.mean(row))
-        row = [f"{acc:.3%}" for acc in row]
-        table.add_row([key] + row)
-    logger.nofmt(table)
+    # table = PrettyTable(["Selection"] + dataset.environments + ["Avg."])
+    # for key, row in results.items():
+    #     row.append(np.mean(row))
+    #     row = [f"{acc:.3%}" for acc in row]
+    #     table.add_row([key] + row)
+    # logger.nofmt(table)
 
 
 if __name__ == "__main__":
