@@ -192,4 +192,3 @@ if __name__ == "__main__":
         if not args.skip_confirmation:
             ask_for_confirmation()
         Job.delete(to_delete)
-

@@ -1,6 +1,6 @@
 python -m domainbed.scripts.sweep $1 \
        --data_dir=/home/hzn/datasets \
-       --output_dir=train_out/sweep/officehome \
+       --output_dir=train_output/sweep/officehome \
        --command_launcher multi_gpu \
        --algorithms DAGDG \
        --datasets OfficeHome \

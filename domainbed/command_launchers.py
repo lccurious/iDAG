@@ -45,13 +45,13 @@ def multi_gpu_launcher(commands):
 
     while len(commands) > 0:
         if 'PACS' in commands:
-            mem_usage = '5GiB'
+            mem_usage = '8GiB'
         elif 'OfficeHome' in commands:
-            mem_usage = '5GiB'
+            mem_usage = '8GiB'
         elif 'DomainNet' in commands:
-            mem_usage = '5GiB'
+            mem_usage = '8GiB'
         else:
-            mem_usage = '5GiB'
+            mem_usage = '8GiB'
 
         available_gpus = select_devices(format='index', min_count=1, min_free_memory=mem_usage)
         for idx, gpu_idx in enumerate(available_gpus):
