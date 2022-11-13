@@ -197,6 +197,8 @@ def main():
     #     row = [f"{acc:.3%}" for acc in row]
     #     table.add_row([key] + row)
     # logger.nofmt(table)
+    with open(os.path.join(args.output_dir, 'done'), 'w') as f:
+        f.write('done')
 
 
 if __name__ == "__main__":

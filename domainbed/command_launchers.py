@@ -44,16 +44,7 @@ def multi_gpu_launcher(commands):
     procs_by_gpu = [None]*n_gpus
 
     while len(commands) > 0:
-        if 'PACS' in commands:
-            mem_usage = '8GiB'
-        elif 'OfficeHome' in commands:
-            mem_usage = '8GiB'
-        elif 'DomainNet' in commands:
-            mem_usage = '8GiB'
-        else:
-            mem_usage = '8GiB'
-
-        available_gpus = select_devices(format='index', min_count=1, min_free_memory=mem_usage)
+        # available_gpus = select_devices(format='index', min_count=1, min_free_memory=mem_usage)
         for idx, gpu_idx in enumerate(available_gpus):
             proc = procs_by_gpu[idx]
             if (proc is None) or (proc.poll() is not None):
@@ -72,10 +63,35 @@ def multi_gpu_launcher(commands):
             p.wait()
 
 
+def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
+    procs_by_queue = [None] * num_parallel
+    n_gpus = torch.cuda.device_count()
+    while len(commands) > 0:
+        for idx, proc in enumerate(procs_by_queue):
+            available_gpus = select_devices(format='index', min_count=1, min_free_memory=mem_usage)
+            gpu_idx = idx % n_gpus
+            if gpu_idx in available_gpus and (proc is None or proc.poll() is not None):
+                # if this gpus has enough memory; launch a command
+                cmd = commands.pop(0)
+                print(cmd)
+                new_proc = subprocess.Popen(
+                    f'CUDA_VISIBLE_DEVICES={gpu_idx} {cmd}', shell=True
+                )
+                procs_by_queue[idx] = new_proc
+                break
+        time.sleep(1)
+
+    # wait for the last few tasks to finish before returning
+    for p in procs_by_queue:
+        if p is not None:
+            p.wait()
+
+
 REGISTRY = {
     'local': local_launcher,
     'dummy': dummy_launcher,
-    'multi_gpu': multi_gpu_launcher
+    'multi_gpu': multi_gpu_launcher,
+    'multi_available_gpu': multi_available_gpu_launcher,
 }
 
 try:

@@ -110,9 +110,9 @@ def _hparams(algorithm, dataset, random_state):
     elif algorithm in ["DAGDG"]:
         hparams["dag_anneal_steps"] = (200, int(random_state.choice([200, 400, 600, 800])))
         hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.7))
-        hparams["ema_ratio"] = (0.99, random_state.uniform(0.9, 0.999))
-        hparams["lambda1"] = (0.01, random_state.uniform(0.001, 0.1))
-        hparams["lambda2"] = (0.01, random_state.uniform(0.001, 1e4))
+        hparams["ema_ratio"] = (0.99, random_state.uniform(0.99, 0.999))
+        hparams["lambda1"] = (0.01, random_state.uniform(0.01, 0.1))
+        hparams["lambda2"] = (0.01, random_state.uniform(0.01, 10.0))
         hparams["h_tol"] = (1e-8, 1e-8)
         hparams["rho_max"] = (100.0, random_state.uniform(1.0, 1e+8))
         hparams["rho"] = (1.0, random_state.uniform(1.0, 1e2))

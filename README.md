@@ -1,19 +1,6 @@
-# SWAD: Domain Generalization by Seeking Flat Minima (NeurIPS'21)
+# iDAG: Towards Invariant Causal Discovery for Domain Generalization
 
-Official PyTorch implementation of [SWAD: Domain Generalization by Seeking Flat Minima](https://arxiv.org/abs/2102.08604).
-
-Junbum Cha, Sanghyuk Chun, Kyungjae Lee, Han-Cheol Cho, Seunghyun Park, Yunsung Lee, Sungrae Park.
-
-<p align="center">
-    <img src="./assets/method.png" width="90%" />
-</p>
-
-Note that this project is built upon [DomainBed@3fe9d7](https://github.com/facebookresearch/DomainBed/tree/3fe9d7bb4bc14777a42b3a9be8dd887e709ec414).
-
-<p align="center">
-    <img src="./assets/fig1.png" width="90%" />
-</p>
-
+Official PyTorch implementation of iDAG
 
 ## Preparation
 
@@ -34,13 +21,13 @@ python -m domainbed.scripts.download --data_dir=/my/datasets/path
 Environment details used for our study.
 
 ```
-Python: 3.8.6
-PyTorch: 1.7.0+cu92
-Torchvision: 0.8.1+cu92
-CUDA: 9.2
-CUDNN: 7603
-NumPy: 1.19.4
-PIL: 8.0.1
+Python: 3.9.13
+PyTorch: 1.10.0
+Torchvision: 0.11.0
+CUDA: 10.2
+CUDNN: 7605
+NumPy: 1.23.1
+PIL: 9.2.0
 ```
 
 ## How to Run
@@ -130,15 +117,6 @@ python train_all.py DN2 --dataset DomainNet --deterministic --trial_seed 2 --che
 ## Citation
 
 The paper will be published at NeurIPS 2021.
-
-```
-@inproceedings{cha2021swad,
-  title={SWAD: Domain Generalization by Seeking Flat Minima},
-  author={Cha, Junbum and Chun, Sanghyuk and Lee, Kyungjae and Cho, Han-Cheol and Park, Seunghyun and Lee, Yunsung and Park, Sungrae},
-  booktitle={Advances in Neural Information Processing Systems (NeurIPS)},
-  year={2021}
-}
-```
 
 ## License
 
