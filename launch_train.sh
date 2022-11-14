@@ -20,6 +20,20 @@ python -m domainbed.scripts.sweep launch \
        --algorithms DAGDG \
        --mem_usage 11GiB \
        --num_parallel 8 \
+       --launch_delay 5 \
+       --datasets OfficeHome \
+       --single_test_envs \
+       --n_hparams 5 \
+       --n_trials 3
+
+python -m domainbed.scripts.sweep delete_incomplete \
+       --data_dir /data/huangzenan/SWAD/data \
+       --output_dir train_output/sweep-v1/officehome \
+       --command_launcher multi_available_gpu \
+       --algorithms DAGDG \
+       --mem_usage 11GiB \
+       --num_parallel 8 \
+       --launch_delay 5 \
        --datasets OfficeHome \
        --single_test_envs \
        --n_hparams 5 \
@@ -33,6 +47,21 @@ python -m domainbed.scripts.sweep launch \
        --algorithms DAGDG \
        --mem_usage 17GiB \
        --num_parallel 8 \
+       --launch_delay 3 \
+       --datasets DomainNet \
+       --single_test_envs \
+       --n_hparams 5 \
+       --n_trials 3
+
+# delete incomplete
+python -m domainbed.scripts.sweep delete_incomplete \
+       --data_dir /data/huangzenan/SWAD/data \
+       --output_dir train_output/sweep-v1/domainnet \
+       --command_launcher multi_available_gpu \
+       --algorithms DAGDG \
+       --mem_usage 17GiB \
+       --num_parallel 8 \
+       --launch_delay 3 \
        --datasets DomainNet \
        --single_test_envs \
        --n_hparams 5 \

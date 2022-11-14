@@ -179,7 +179,7 @@ def train(test_envs, args, hparams, n_steps, checkpoint_freq, logger, writer, ta
             # swad_algorithm is segment_swa for swad
             swad_algorithm.update_parameters(algorithm, step=step)
 
-        if step % checkpoint_freq == 0:
+        if step > 0 and step % checkpoint_freq == 0:
             results = {
                 "step": step,
                 "epoch": step / steps_per_epoch,
