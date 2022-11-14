@@ -78,6 +78,7 @@ def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8, lau
                     f'CUDA_VISIBLE_DEVICES={gpu_idx} {cmd}', shell=True
                 )
                 procs_by_queue[idx] = new_proc
+                time.sleep(launch_delay)
                 break
         time.sleep(launch_delay)
 

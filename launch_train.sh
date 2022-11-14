@@ -26,6 +26,7 @@ python -m domainbed.scripts.sweep launch \
        --n_hparams 5 \
        --n_trials 3
 
+# delete HP search on OfficeHome @ Zhejiang-2
 python -m domainbed.scripts.sweep delete_incomplete \
        --data_dir /data/huangzenan/SWAD/data \
        --output_dir train_output/sweep-v1/officehome \
