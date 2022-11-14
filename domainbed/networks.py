@@ -565,6 +565,23 @@ def encoder(hparams):
             dropout,
             nn.Linear(hparams['hidden_size'], hparams['out_dim']),
         )
+    elif hparams['dataset'] == "DomainNet":
+        scale_weights = 12
+        pcl_weights = 1
+        dropout = nn.Dropout(0.25)
+        hparams['hidden_size'] = 1024
+        hparams['out_dim'] = 1024
+        encoder = nn.Sequential(
+            nn.Linear(n_outputs, hparams['hidden_size']),
+            nn.BatchNorm1d(hparams['hidden_size']),
+            nn.ReLU(inplace=True),
+            dropout,
+            nn.Linear(hparams['hidden_size'], hparams['hidden_size']),
+            nn.BatchNorm1d(hparams['hidden_size']),
+            nn.ReLU(inplace=True),
+            dropout,
+            nn.Linear(hparams['hidden_size'], hparams['out_dim'])
+        )
     else:
         pass
 
