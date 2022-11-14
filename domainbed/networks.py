@@ -633,4 +633,3 @@ def fea_proj(hparams):
         pass
 
     return fea_proj, fc_proj
-

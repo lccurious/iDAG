@@ -67,7 +67,7 @@ class Job:
             job_info)
 
     @staticmethod
-    def launch(jobs, launcher_fn, mem_usage, num_parallel):
+    def launch(jobs, launcher_fn, mem_usage, num_parallel, launch_delay):
         print('Launching...')
         jobs = jobs.copy()
         np.random.shuffle(jobs)
@@ -75,7 +75,7 @@ class Job:
         for job in tqdm.tqdm(jobs, leave=False):
             os.makedirs(job.output_dir, exist_ok=True)
         commands = [job.command_str for job in jobs]
-        launcher_fn(commands, mem_usage=mem_usage, num_parallel=num_parallel)
+        launcher_fn(commands, mem_usage=mem_usage, num_parallel=num_parallel, launch_delay=launch_delay)
         print(f'Launched {len(jobs)} jobs!')
 
     @staticmethod
@@ -140,6 +140,7 @@ if __name__ == "__main__":
     parser.add_argument('command', choices=['launch', 'delete_incomplete'])
     parser.add_argument('--mem_usage', type=str, default='11GiB')
     parser.add_argument('--num_parallel', type=int, default=8)
+    parser.add_argument('--launch_delay', type=float, default=5)
     parser.add_argument('--datasets', nargs='+', type=str, default=DATASETS)
     parser.add_argument('--algorithms', nargs='+', type=str, default=algorithms.ALGORITHMS)
     parser.add_argument('--n_hparams_from', type=int, default=0)
@@ -186,7 +187,7 @@ if __name__ == "__main__":
         if not args.skip_confirmation:
             ask_for_confirmation()
         launcher_fn = command_launchers.REGISTRY[args.command_launcher]
-        Job.launch(to_launch, launcher_fn, mem_usage=args.mem_usage, num_parallel=args.num_parallel)
+        Job.launch(to_launch, launcher_fn, mem_usage=args.mem_usage, num_parallel=args.num_parallel, launch_delay=args.launch_delay)
 
     elif args.command == 'delete_incomplete':
         to_delete = [j for j in jobs if j.state == Job.INCOMPLETE]

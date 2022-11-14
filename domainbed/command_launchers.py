@@ -63,7 +63,7 @@ def multi_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
             p.wait()
 
 
-def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
+def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8, launch_delay=5):
     procs_by_queue = [None] * num_parallel
     n_gpus = torch.cuda.device_count()
     while len(commands) > 0:
@@ -79,7 +79,7 @@ def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
                 )
                 procs_by_queue[idx] = new_proc
                 break
-        time.sleep(1)
+        time.sleep(launch_delay)
 
     # wait for the last few tasks to finish before returning
     for p in procs_by_queue:
