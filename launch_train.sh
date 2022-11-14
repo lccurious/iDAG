@@ -3,8 +3,10 @@ python -m domainbed.scripts.sweep $1 \
        --output_dir=train_output/sweep/officehome \
        --command_launcher multi_available_gpu \
        --algorithms DAGDG \
+       --mem_usage 11GiB \
+       --num_parallel 8 \
        --datasets OfficeHome \
        --single_test_envs \
        --n_hparams 5 \
-       --n_trials 1 \
+       --n_trials 3 \
        --hparams '{"resnet18": "True"}'

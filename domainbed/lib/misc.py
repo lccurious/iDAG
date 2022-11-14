@@ -63,6 +63,21 @@ def to_row(row, colwidth=10, latex=False):
     return sep.join([format_val(x) for x in row]) + " " + end_
 
 
+def print_row(row, colwidth=10, latex=False):
+    if latex:
+        sep = " & "
+        end_ = "\\\\"
+    else:
+        sep = "  "
+        end_ = ""
+
+    def format_val(x):
+        if np.issubdtype(type(x), np.floating):
+            x = "{:.10f}".format(x)
+        return str(x).ljust(colwidth)[:colwidth]
+    print(sep.join([format_val(x) for x in row]), end_)
+
+
 def random_pairs_of_minibatches(minibatches):
     # n_tr_envs = len(minibatches)
     perm = torch.randperm(len(minibatches)).tolist()

@@ -6,15 +6,16 @@ import json
 import os
 
 import tqdm
+from pathlib import Path
 
 from domainbed.lib.query import Q
 
 def load_records(path):
     records = []
-    for i, subdir in tqdm.tqdm(list(enumerate(os.listdir(path))),
+    jsonl_list = Path(path).glob('**/results.jsonl')
+    for i, results_path in tqdm.tqdm(list(enumerate(jsonl_list)),
                                ncols=80,
                                leave=False):
-        results_path = os.path.join(path, subdir, "results.jsonl")
         try:
             with open(results_path, "r") as f:
                 for line in f:
@@ -30,6 +31,8 @@ def get_grouped_records(records):
     one group."""
     result = collections.defaultdict(lambda: [])
     for r in records:
+        r["args"]["configs"] = None
+        print(r)
         for test_env in r["args"]["test_envs"]:
             group = (r["args"]["trial_seed"],
                 r["args"]["dataset"],

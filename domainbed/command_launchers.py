@@ -13,7 +13,7 @@ import os
 from nvitop import select_devices
 
 
-def local_launcher(commands):
+def local_launcher(commands, mem_usage='5GiB', num_parallel=8):
     """Launch commands serially on the local machine."""
     for cmd in commands:
         subprocess.call(cmd, shell=True)
@@ -28,7 +28,7 @@ def dummy_launcher(commands):
         print(f'Dummy launcher: {cmd}')
 
 
-def multi_gpu_launcher(commands):
+def multi_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
     """
     Launch commands on the local machine, using all GPUs in parallel.
     """
@@ -55,7 +55,7 @@ def multi_gpu_launcher(commands):
                     f'CUDA_VISIBLE_DEVICES={gpu_idx} {cmd}', shell=True)
                 procs_by_gpu[idx] = new_proc
                 break
-        time.sleep(10)
+        time.sleep(1)
 
     # Wait for the last few tasks to finish before returning
     for p in procs_by_gpu:

@@ -476,7 +476,7 @@ class NotearsClassifier(nn.Module):
         return h
 
     def w_l1_reg(self):
-        reg = torch.sum(self.weight_pos + self.weight_neg)
+        reg = torch.mean(self.weight_pos + self.weight_neg)
         return reg
 
     def forward(self, x, y=None):
