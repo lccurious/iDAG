@@ -71,9 +71,9 @@ class Job:
         print('Launching...')
         jobs = jobs.copy()
         np.random.shuffle(jobs)
-        print('Making job directories:')
-        for job in tqdm.tqdm(jobs, leave=False):
-            os.makedirs(job.output_dir, exist_ok=True)
+        # print('Making job directories:')
+        # for job in tqdm.tqdm(jobs, leave=False):
+        #     os.makedirs(job.output_dir, exist_ok=True)
         commands = [job.command_str for job in jobs]
         launcher_fn(commands, mem_usage=mem_usage, num_parallel=num_parallel, launch_delay=launch_delay)
         print(f'Launched {len(jobs)} jobs!')
@@ -96,7 +96,7 @@ def all_test_env_combinations(n):
         for j in range(i+1, n):
             yield [i, j]
 
-def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparams, steps,
+def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparams, steps, checkpoint_freq,
     data_dir, holdout_fraction, single_test_envs, hparams):
     args_list = []
     for trial_seed in range(n_trials):
@@ -122,6 +122,8 @@ def make_args_list(n_trials, dataset_names, algorithms, n_hparams_from, n_hparam
                             algorithm, test_envs, hparams_seed, trial_seed)
                         if steps is not None:
                             train_args['steps'] = steps
+                        if checkpoint_freq is not None:
+                            train_args['checkpoint_freq'] = checkpoint_freq
                         if hparams is not None:
                             train_args['hparams'] = hparams
                         args_list.append(train_args)
@@ -155,6 +157,12 @@ if __name__ == "__main__":
     parser.add_argument('--holdout_fraction', type=float, default=0.2)
     parser.add_argument('--single_test_envs', action='store_true')
     parser.add_argument('--skip_confirmation', action='store_true')
+    parser.add_argument(
+        "--checkpoint_freq",
+        type=int,
+        default=None,
+        help="Checkpoint every N steps. Default is dataset-dependent.",
+    )
     args = parser.parse_args()
 
     args_list = make_args_list(
@@ -164,6 +172,7 @@ if __name__ == "__main__":
         n_hparams_from=args.n_hparams_from,
         n_hparams=args.n_hparams,
         steps=args.steps,
+        checkpoint_freq=args.checkpoint_freq,
         data_dir=args.data_dir,
         holdout_fraction=args.holdout_fraction,
         single_test_envs=args.single_test_envs,

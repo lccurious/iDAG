@@ -519,10 +519,10 @@ class LightEncoder(nn.Module):
             nn.BatchNorm1d(hidden_size),
             nn.ReLU(inplace=True),
             self.dropout,
-            nn.Linear(hidden_size, hidden_size),
-            nn.BatchNorm1d(hidden_size),
-            nn.ReLU(inplace=True),
-            self.dropout,
+            # nn.Linear(hidden_size, hidden_size),
+            # nn.BatchNorm1d(hidden_size),
+            # nn.ReLU(inplace=True),
+            # self.dropout,
             nn.Linear(hidden_size, out_channels),
         )
         self._initialize_weights(self.encoder)

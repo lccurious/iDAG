@@ -46,16 +46,16 @@ Example results:
 +------------+--------------+---------+---------+---------+---------+
 | Selection  | art_painting | cartoon |  photo  |  sketch |   Avg.  |
 +------------+--------------+---------+---------+---------+---------+
-|   oracle   |   82.245%    | 85.661% | 97.530% | 83.461% | 87.224% |
-|    iid     |   87.919%    | 78.891% | 96.482% | 78.435% | 85.432% |
-|    last    |   82.306%    | 81.823% | 95.135% | 82.061% | 85.331% |
-| last (inD) |   95.807%    | 95.291% | 96.306% | 95.477% | 95.720% |
-| iid (inD)  |   97.275%    | 96.619% | 96.696% | 97.253% | 96.961% |
-|    SWAD    |   89.750%    | 82.942% | 97.979% | 81.870% | 88.135% |
-| SWAD (inD) |   97.713%    | 97.649% | 97.316% | 98.074% | 97.688% |
+|   oracle   |   87.309%    | 85.181% | 96.781% | 83.174% | 88.112% |
+|    iid     |   84.137%    | 78.891% | 96.108% | 77.449% | 84.146% |
+|    last    |   82.428%    | 76.226% | 94.611% | 78.690% | 82.989% |
+| last (inD) |   96.548%    | 95.338% | 95.523% | 95.715% | 95.781% |
+| iid (inD)  |   97.301%    | 96.736% | 96.787% | 97.098% | 96.980% |
+|    SWAD    |   90.811%    | 84.488% | 97.979% | 82.761% | 89.009% |
+| SWAD (inD) |   98.054%    | 97.561% | 97.425% | 97.992% | 97.758% |
 +------------+--------------+---------+---------+---------+---------+
 ```
-In this example, the DG performance of SWAD for PACS dataset is 88.135%.
+In this example, the DG performance of SWAD for PACS dataset is 89.009%.
 
 If you set `indomain_test` option to `True`, the validation set is splitted to validation and test sets,
 and the `(inD)` keys become to indicate in-domain test accuracy.
@@ -109,14 +109,6 @@ python train_all.py DN2 --dataset DomainNet --deterministic --trial_seed 2 --che
 
 ## Main Results
 
-<p align="center">
-    <img src="./assets/fig2.png" width="80%" />
-</p>
-
-
-## Citation
-
-The paper will be published at NeurIPS 2021.
 
 ## License
 

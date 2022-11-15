@@ -10,7 +10,51 @@ python -m domainbed.scripts.sweep launch \
        --single_test_envs \
        --n_hparams 20 \
        --n_trials 3 \
-       --hparams '{"resnet18": "True", "hidden_size": 512, "out_dim": 512}'
+       --hparams '{"resnet18": "True", "hidden_size": 512, "out_dim": 512, "checkpoint_freq": 300, "steps": 3000}'
+
+# run HP search on OfficeHome @ RTX2080Ti with lmdb
+python -m domainbed.scripts.sweep launch \
+       --data_dir=/home/hzn/datasets \
+       --output_dir=train_output/sweep-v2/officehome \
+       --command_launcher multi_available_gpu \
+       --algorithms iDAGamp \
+       --mem_usage 10GiB \
+       --num_parallel 8 \
+       --datasets OfficeHome \
+       --single_test_envs \
+       --n_hparams 20 \
+       --n_trials 3 \
+       --steps 6000 \
+       --checkpoint_freq 600 \
+       --hparams '{"hidden_size": 512, "out_dim": 512, "batch_size":16}'
+
+# run HP search on OfficeHome @ RTX2080Ti
+python -m domainbed.scripts.sweep launch \
+       --data_dir=/home/hzn/datasets \
+       --output_dir=train_output/sweep-v2/officehome \
+       --command_launcher multi_available_gpu \
+       --algorithms iDAG \
+       --mem_usage 10GiB \
+       --num_parallel 8 \
+       --datasets OfficeHome \
+       --single_test_envs \
+       --n_hparams 20 \
+       --n_trials 3 \
+       --hparams '{"hidden_size": 512, "out_dim": 512, "checkpoint_freq": 300, "steps": 3000}'
+
+# run HP search on OfficeHome @ RTX2080Ti
+python -m domainbed.scripts.sweep launch \
+       --data_dir=/home/hzn/datasets \
+       --output_dir=train_output/sweep-v2/pacs \
+       --command_launcher multi_available_gpu \
+       --algorithms iDAG \
+       --mem_usage 5GiB \
+       --num_parallel 8 \
+       --datasets PACS \
+       --single_test_envs \
+       --n_hparams 20 \
+       --n_trials 3 \
+       --hparams '{"hidden_size": 512, "out_dim": 512}'
 
 # delete incomplete OfficeHome @ RTX2080Ti
 python -m domainbed.scripts.sweep delete_incomplete \

@@ -132,7 +132,6 @@ class PrototypePLoss(nn.Module):
         super(PrototypePLoss, self).__init__()
         self.soft_plus = nn.Softplus()
         self.label = torch.arange(num_classes)
-        self.domain_label = torch.arange(num_domains)
         self.temperature = temperature
 
     def forward(self, feature, prototypes, labels):
@@ -181,9 +180,9 @@ class iDAG(Algorithm):
     """
     def __init__(self, input_shape, num_classes, num_domains, hparams):
         super(iDAG, self).__init__(input_shape,
-                                    num_classes,
-                                    num_domains,
-                                    hparams)
+                                   num_classes,
+                                   num_domains,
+                                   hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.encoder = networks.LightEncoder(self.featurizer.n_outputs,
                                              hparams['hidden_size'],
@@ -328,6 +327,100 @@ class iDAG(Algorithm):
         clone.optimizer.load_state_dict(self.optimizer.state_dict())
 
         return clone
+
+
+class iDAGamp(iDAG):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(iDAGamp, self).__init__(input_shape, num_classes, num_domains, hparams)
+        self.accumulation_steps = 2
+    
+    def update(self, x, y, **kwargs):
+        all_x = torch.cat(x)
+        all_y = torch.cat(y)
+
+        domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long().to(all_x.device)
+
+        all_f = self.featurizer(all_x)
+        all_f = self.encoder(all_f)
+        all_masked_f = self.dag_mlp(all_f)
+
+        for f, masked_f, label_y, label_d in zip(F.normalize(all_f, dim=1), 
+                                                 F.normalize(all_masked_f, dim=1), 
+                                                 all_y, 
+                                                 domain_labels):
+            self.prototypes[label_d, label_y] = self.prototypes[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f.detach()
+            self.prototypes_y[label_y] = self.prototypes_y[label_y] * self.proto_m + (1 - self.proto_m) * masked_f.detach()
+        self.prototypes = F.normalize(self.prototypes, p=2, dim=2)
+        self.prototypes_y = F.normalize(self.prototypes_y, p=2, dim=1)
+
+        prototypes = self.prototypes.detach().clone()
+        prototypes_y = self.prototypes_y.detach().clone()
+
+        proto_rec, masked_proto = self.dag_mlp(
+            x=prototypes.view(self.num_domains * self.num_classes, -1),
+            y=self.prototypes_label)
+
+        # reconstruction loss
+        loss_rec = F.cosine_embedding_loss(
+            proto_rec, 
+            prototypes.view(self.num_domains * self.num_classes, -1),
+            torch.ones(self.num_domains * self.num_classes, device=all_x.device))
+        loss_rec += F.cross_entropy(
+            self.rec_classifier(masked_proto),
+            self.prototypes_label)
+        loss_rec = self.lambda2 * loss_rec
+        h_val = self.dag_mlp.h_func()
+        penalty = 0.5 * self.rho * h_val * h_val + self.alpha * h_val
+        l1_reg = self.lambda1 * self.dag_mlp.w_l1_reg()
+
+        # update the DAG hyper-parameters
+        if kwargs['step'] % 100 == 0:
+            if self.rho < self.rho_max and h_val > 0.25 * self._h_val:
+                self.rho *= 10
+                self.alpha += self.rho * h_val.item()
+            self._h_val = h_val.item()
+
+        loss_dag = loss_rec + penalty + l1_reg
+
+        loss_inv_ce = F.cross_entropy(self.inv_classifier(all_masked_f), all_y)
+
+        loss_contr_mu = self.hparams["weight_mu"] * self.loss_proto_con(all_masked_f, prototypes_y, all_y)
+        loss_contr_nu = self.hparams["weight_nu"] * self.loss_multi_proto_con(all_f, prototypes, all_y, domain_labels)
+        loss_contr = loss_contr_mu + loss_contr_nu
+
+        if kwargs['step'] == self.hparams["dag_anneal_steps"]:
+            # avoid the gradient jump
+            params = [
+                {"params": self.network.parameters()},
+            ]
+            self.optimizer = get_optimizer(
+                self.hparams["optimizer"],
+                params,
+                lr=self.hparams["lr"],
+                weight_decay=self.hparams["weight_decay"],
+            )
+
+        if kwargs['step'] >= self.hparams["dag_anneal_steps"]:
+            loss = loss_inv_ce + loss_dag + loss_contr_mu + loss_contr_nu
+        else:
+            loss = loss_inv_ce + loss_contr_nu
+
+        loss = loss / self.accumulation_steps
+        loss.backward()
+        if (kwargs['step'] + 1) % self.accumulation_steps == 0:
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+        # constraint DAG weights
+        self.dag_mlp.projection()
+
+        return {"loss": loss.item(),
+                "inv_ce": loss_inv_ce.item(),
+                "l2": loss_rec.item(),
+                "penalty": penalty.item(),
+                "l1": l1_reg.item(),
+                "cl": loss_contr.item(),
+                "mask": self.dag_mlp.masked_ratio().item()}
 
 
 class Mixstyle(Algorithm):

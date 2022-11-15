@@ -107,18 +107,18 @@ def _hparams(algorithm, dataset, random_state):
         hparams["beta"] = (1.0, 1.0)
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
-    elif algorithm in ["iDAG"]:
+    elif algorithm in ["iDAG", "iDAGamp"]:
         hparams["hidden_size"] = (512, 512)
         hparams["out_dim"] = (512, 512)
         hparams["dag_anneal_steps"] = (200, int(random_state.choice([200, 400, 600, 800])))
-        hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.7))
+        hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.01))
         hparams["ema_ratio"] = (0.99, random_state.uniform(0.99, 0.999))
-        hparams["lambda1"] = (0.01, random_state.uniform(0.01, 0.1))
-        hparams["lambda2"] = (0.01, random_state.uniform(0.01, 10.0))
+        hparams["lambda1"] = (0.01, random_state.uniform(0.01, 1.0))
+        hparams["lambda2"] = (0.01, random_state.uniform(0.01, 1.0))
         hparams["h_tol"] = (1e-8, 1e-8)
-        hparams["rho_max"] = (100.0, random_state.uniform(1.0, 1e+8))
-        hparams["rho"] = (1.0, random_state.uniform(1.0, 1e2))
-        hparams["alpha"] = (1.0, random_state.uniform(1.0, 1e2))
+        hparams["rho_max"] = (100.0, 10 ** random_state.uniform(1.0, 6.0))
+        hparams["rho"] = (1.0, 1.0)
+        hparams["alpha"] = (1.0, 1.0)
         hparams["weight_nu"] = (1.0, random_state.uniform(1.0, 2.0))
         hparams["weight_mu"] = (1.0, random_state.uniform(1.0, 2.0))
 

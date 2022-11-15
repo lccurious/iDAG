@@ -78,7 +78,6 @@ def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8, lau
             if (gpu_idx in available_gpus and gpu_idx in allow_gpus) and (proc is None or proc.poll() is not None):
                 # if this gpus has enough memory; launch a command
                 cmd = commands.pop(0)
-                print(cmd)
                 new_proc = subprocess.Popen(
                     f'CUDA_VISIBLE_DEVICES={gpu_idx} {cmd}', shell=True
                 )
