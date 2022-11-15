@@ -65,7 +65,7 @@ def multi_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
 
 def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8, launch_delay=5):
     procs_by_queue = [None] * num_parallel
-    n_gpus = torch.cuda.device_count()
+    n_gpus = len(select_devices(format='index', min_count=1))
     try:
         allow_gpus = [int(x) for x in os.environ['CUDA_VISIBLE_DEVICES'].split(',') if x != '']
     except Exception:
