@@ -124,4 +124,5 @@ python -m domainbed.scripts.sweep launch \
        --single_test_envs \
        --n_hparams_from 20 \
        --n_hparams 40 \
-       --n_trials 3
+       --n_trials 3 \
+       --hparams '{"checkpoint_freq": 300, "steps": 3000}'
