@@ -66,11 +66,16 @@ def multi_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8):
 def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8, launch_delay=5):
     procs_by_queue = [None] * num_parallel
     n_gpus = torch.cuda.device_count()
+    try:
+        allow_gpus = [int(x) for x in os.environ['CUDA_VISIBLE_DEVICES'].split(',') if x != '']
+    except Exception:
+        allow_gpus = [x for x in range(n_gpus)]
+    print('CUDA_VISIBLE_DEVICES is', allow_gpus)
     while len(commands) > 0:
         for idx, proc in enumerate(procs_by_queue):
             available_gpus = select_devices(format='index', min_count=1, min_free_memory=mem_usage)
             gpu_idx = idx % n_gpus
-            if gpu_idx in available_gpus and (proc is None or proc.poll() is not None):
+            if (gpu_idx in available_gpus and gpu_idx in allow_gpus) and (proc is None or proc.poll() is not None):
                 # if this gpus has enough memory; launch a command
                 cmd = commands.pop(0)
                 print(cmd)
@@ -78,7 +83,7 @@ def multi_available_gpu_launcher(commands, mem_usage='5GiB', num_parallel=8, lau
                     f'CUDA_VISIBLE_DEVICES={gpu_idx} {cmd}', shell=True
                 )
                 procs_by_queue[idx] = new_proc
-                time.sleep(launch_delay)
+                time.sleep(60)
                 break
         time.sleep(launch_delay)
 
@@ -100,4 +105,3 @@ try:
     facebook.register_command_launchers(REGISTRY)
 except ImportError:
     pass
-
