@@ -483,18 +483,12 @@ class NotearsClassifier(nn.Module):
         W = self._adj()
         W_sub = self._adj_sub()
         if y is not None:
-            # one_hot = F.one_hot(y)
-            # x_aug = torch.cat((x, one_hot), dim=1)
-            # x: n_outputs + num_classes
-            # W_aug = torch.repeat_interleave(W, self._repeats, dim=0)
             x_aug = torch.cat((x, y.unsqueeze(1)), dim=1)
             M = x_aug @ W
-            # masked_x = x * W[:self.dims, -1].unsqueeze(0)
             masked_x = x * W_sub[:self.dims, -1].unsqueeze(0)
             # reconstruct variables, classification logits
             return M[:, :self.dims], masked_x
         else:
-            # masked_x = x * W[:self.dims, -1].unsqueeze(0).detach()
             masked_x = x * W_sub[:self.dims, -1].unsqueeze(0).detach()
             return masked_x
 
@@ -516,76 +510,41 @@ class NotearsClassifier(nn.Module):
         return torch.norm(W[:self.dims, -1], p=0)
 
 
-def encoder(hparams):
-    if hparams["resnet18"] == False:
-        n_outputs = 2048
-    else:
-        n_outputs = 512
-    if hparams['dataset'] == "OfficeHome":
-        scale_weights = 12
-        pcl_weights = 1
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 512
-        hparams['out_dim'] = 512
-        encoder = nn.Sequential(
-            nn.Linear(n_outputs, hparams['hidden_size']),
-            nn.BatchNorm1d(hparams['hidden_size']),
+class LightEncoder(nn.Module):
+    def __init__(self, in_channels, out_channels, hidden_size) -> None:
+        super(LightEncoder, self).__init__()
+        self.dropout = nn.Dropout(0.25)
+        self.encoder = nn.Sequential(
+            nn.Linear(in_channels, hidden_size),
+            nn.BatchNorm1d(hidden_size),
             nn.ReLU(inplace=True),
-            dropout,
-            nn.Linear(hparams['hidden_size'], hparams['out_dim']),
-        )
-    elif hparams['dataset'] == "PACS":
-        scale_weights = 12
-        pcl_weights = 1
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 512
-        hparams['out_dim'] = 256
-        encoder = nn.Sequential(
-            nn.Linear(n_outputs, hparams['hidden_size']),
-            nn.BatchNorm1d(hparams['hidden_size']),
+            self.dropout,
+            nn.Linear(hidden_size, hidden_size),
+            nn.BatchNorm1d(hidden_size),
             nn.ReLU(inplace=True),
-            dropout,
-            nn.Linear(hparams['hidden_size'], hparams['out_dim']),
+            self.dropout,
+            nn.Linear(hidden_size, out_channels),
         )
+        self._initialize_weights(self.encoder)
 
-    elif hparams['dataset'] == "TerraIncognita":
-        scale_weights = 12
-        pcl_weights = 1
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 512
-        hparams['out_dim'] = 512
-        encoder = nn.Sequential(
-            nn.Linear(n_outputs, hparams['hidden_size']),
-            nn.BatchNorm1d(hparams['hidden_size']),
-            nn.ReLU(inplace=True),
-            dropout,
-            nn.Linear(hparams['hidden_size'], hparams['hidden_size']),
-            nn.BatchNorm1d(hparams['hidden_size']),
-            nn.ReLU(inplace=True),
-            dropout,
-            nn.Linear(hparams['hidden_size'], hparams['out_dim']),
-        )
-    elif hparams['dataset'] == "DomainNet":
-        scale_weights = 12
-        pcl_weights = 1
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 1024
-        hparams['out_dim'] = 1024
-        encoder = nn.Sequential(
-            nn.Linear(n_outputs, hparams['hidden_size']),
-            nn.BatchNorm1d(hparams['hidden_size']),
-            nn.ReLU(inplace=True),
-            dropout,
-            nn.Linear(hparams['hidden_size'], hparams['hidden_size']),
-            nn.BatchNorm1d(hparams['hidden_size']),
-            nn.ReLU(inplace=True),
-            dropout,
-            nn.Linear(hparams['hidden_size'], hparams['out_dim'])
-        )
-    else:
-        pass
+    def _initialize_weights(self, modules):
+        for m in modules:
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, np.sqrt(2. / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                m.weight.data.fill_(1)
+                m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                n = m.weight.size(1)
+                m.weight.data.normal_(0, 0.01)
+                m.bias.data.zero_()
 
-    return encoder, scale_weights, pcl_weights
+    def forward(self, x):
+        feat = self.encoder(x)
+        return feat
 
 
 def fea_proj(hparams):

@@ -107,7 +107,9 @@ def _hparams(algorithm, dataset, random_state):
         hparams["beta"] = (1.0, 1.0)
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
-    elif algorithm in ["DAGDG"]:
+    elif algorithm in ["iDAG"]:
+        hparams["hidden_size"] = (512, 512)
+        hparams["out_dim"] = (512, 512)
         hparams["dag_anneal_steps"] = (200, int(random_state.choice([200, 400, 600, 800])))
         hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.7))
         hparams["ema_ratio"] = (0.99, random_state.uniform(0.99, 0.999))

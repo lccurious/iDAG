@@ -174,19 +174,20 @@ class MultiDomainPrototypePLoss(nn.Module):
         return loss
 
 
-class DAGDG(Algorithm):
+class iDAG(Algorithm):
     """
     DAG domain generalization methods
 
     """
     def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(DAGDG, self).__init__(input_shape,
+        super(iDAG, self).__init__(input_shape,
                                     num_classes,
                                     num_domains,
                                     hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.encoder, _, _ = networks.encoder(hparams)
-        self._initialize_weights(self.encoder)
+        self.encoder = networks.LightEncoder(self.featurizer.n_outputs,
+                                             hparams['hidden_size'],
+                                             hparams['out_dim'])
 
         self.dag_mlp = networks.NotearsClassifier(hparams['out_dim'], num_classes)
         self.dag_mlp.weight_pos.data[:-1, -1].fill_(1.0)
@@ -224,22 +225,7 @@ class DAGDG(Algorithm):
             weight_decay=self.hparams["weight_decay"],
         )
         self.loss_proto_con = PrototypePLoss(num_classes, num_domains, hparams['temperature'])
-        self.loss_multi_proto_con = MultiDomainPrototypePLoss(num_classes, num_domains, hparams['temperature'])
-
-    def _initialize_weights(self, modules):
-        for m in modules:
-            if isinstance(m, nn.Conv2d):
-                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
-                m.weight.data.normal_(0, math.sqrt(2. / n))
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                m.weight.data.fill_(1)
-                m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                n = m.weight.size(1)
-                m.weight.data.normal_(0, 0.01)
-                m.bias.data.zero_()
+        self.loss_multi_proto_con = MultiDomainPrototypePLoss(num_classes, num_domains, hparams['temperature']) 
 
     def update(self, x, y, **kwargs):
         all_x = torch.cat(x)
@@ -249,9 +235,12 @@ class DAGDG(Algorithm):
 
         all_f = self.featurizer(all_x)
         all_f = self.encoder(all_f)
-        all_masked_f = self.dag_mlp.mask_feature(all_f)
+        all_masked_f = self.dag_mlp(all_f)
 
-        for f, masked_f, label_y, label_d in zip(all_f, all_masked_f, all_y, domain_labels):
+        for f, masked_f, label_y, label_d in zip(F.normalize(all_f, dim=1), 
+                                                 F.normalize(all_masked_f, dim=1), 
+                                                 all_y, 
+                                                 domain_labels):
             self.prototypes[label_d, label_y] = self.prototypes[label_d, label_y] * self.proto_m + (1 - self.proto_m) * f.detach()
             self.prototypes_y[label_y] = self.prototypes_y[label_y] * self.proto_m + (1 - self.proto_m) * masked_f.detach()
         self.prototypes = F.normalize(self.prototypes, p=2, dim=2)
@@ -265,10 +254,10 @@ class DAGDG(Algorithm):
             y=self.prototypes_label)
 
         # reconstruction loss
-        loss_rec = F.cosine_embedding_loss(proto_rec, prototypes.view(self.num_domains * self.num_classes, -1),
-                                           torch.ones(self.num_domains * self.num_classes, device=all_x.device))
-        # loss_rec = F.mse_loss(proto_rec,
-        #                       prototypes.view(self.num_domains * self.num_classes, -1), reduction='sum') / proto_rec.size(0)
+        loss_rec = F.cosine_embedding_loss(
+            proto_rec, 
+            prototypes.view(self.num_domains * self.num_classes, -1),
+            torch.ones(self.num_domains * self.num_classes, device=all_x.device))
         loss_rec += F.cross_entropy(
             self.rec_classifier(masked_proto),
             self.prototypes_label)
@@ -339,341 +328,6 @@ class DAGDG(Algorithm):
         clone.optimizer.load_state_dict(self.optimizer.state_dict())
 
         return clone
-
-
-class DRDA(Algorithm):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(DRDA, self).__init__(input_shape, num_classes, num_domains, hparams)
-        self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
-        self.network = nn.Sequential(self.featurizer, self.classifier)
-
-        # define exponential moving average ratio for updating anchors
-        self.ema_ratio = hparams["ema_ratio"]
-        self.temperature = hparams["temperature"]
-        self.optimizer = get_optimizer(
-            hparams["optimizer"],
-            self.network.parameters(),
-            lr=self.hparams["lr"],
-            weight_decay=self.hparams["weight_decay"],
-        )
-        self.register_buffer('ema_anchors', torch.zeros(self.num_domains, self.num_classes, self.featurizer.n_outputs))
-        self.register_buffer('ema_centers', torch.zeros(self.num_domains, self.featurizer.n_outputs))
-
-    @torch.no_grad()
-    def _batch_shuffle_ddp(self, x):
-        """
-        Batch shuffle, for making use of BatchNorm.
-        *** Only support DistributedDataParallel (DDP) model. ***
-
-        :param x: Inputs
-        :type x: torch.Tensor
-        """
-        # gather from all gpus
-        batch_size_this = x.shape[0]
-        x_gather = concat_all_gather(x)
-        batch_size_all = x_gather.shape[0]
-
-        num_gpus = batch_size_all // batch_size_this
-
-        # random shuffle index
-        idx_shuffle = torch.randperm(batch_size_all).cuda()
-
-        # broadcast to all gpus
-        torch.distributed.broadcast(idx_shuffle, src=0)
-
-        # index for restoring
-        idx_unshuffle = torch.argsort(idx_shuffle)
-
-        # shuffled index for this gpu
-        gpu_idx = torch.distributed.get_rank()
-        idx_this = idx_shuffle.view(num_gpus, -1)[gpu_idx]
-
-        return x_gather[idx_this], idx_unshuffle
-
-    @torch.no_grad()
-    def _batch_unshuffle_ddp(self, x, idx_unshuffle):
-        """
-        Undo batch shuffle.
-        *** Only support DistributedDataParallel (DDP) model. ***
-
-        :param x: Inputs
-        :type x: torch.Tensor
-        :param idx_unshuffle: Index
-        :type idx_unshuffle: torch.Tensor
-        """
-        # gather from all gpus
-        batch_size_this = x.shape[0]
-        x_gather = concat_all_gather(x)
-        batch_size_all = x_gather.shape[0]
-
-        num_gpus = batch_size_all // batch_size_this
-
-        # restored index for this gpu
-        gpu_idx = torch.distributed.get_rank()
-        idx_this = idx_unshuffle.view(num_gpus, -1)[gpu_idx]
-
-        return x_gather[idx_this]
-
-    def mean_by_label(self, features, labels, domain_labels):
-        """
-        Select mean(samples), count() from samples group by labels order by labels asc
-
-        :param features: NxM samples Tensor which N is number of samples and M is number of feature dimension
-        :type features: torch.Tensor
-        :param labels: Nx1 labels Tensor which N is number of samples and L is number of categories
-        :type labels: torch.Tensor
-        :param num_classes: The complete number of categories
-        :type num_classes: int
-        :return mean: the euclid center of each category of samples, if one category disappear make it zero
-        :rtype mean: torch.Tensor
-        """
-        f_avg = torch.zeros(self.num_domains, self.num_classes, self.featurizer.n_outputs, dtype=features.dtype, device=features.device)
-        f_centers = torch.zeros(self.num_domains, self.featurizer.n_outputs, dtype=features.dtype, device=features.device)
-
-        for d in range(self.num_domains):
-            # select features of current domain
-            f_d = features[domain_labels == d]
-            l_d = labels[domain_labels == d]
-
-            # if this domain not exists
-            if len(f_d) == 0:
-                continue
-
-            num_cur_domain = f_d.shape[0]
-            weights = torch.zeros(self.num_classes, num_cur_domain, dtype=features.dtype, device=features.device)
-            weights[l_d, torch.arange(num_cur_domain)] = 1
-            weights = F.normalize(weights, p=1, dim=1)
-            weights = torch.nan_to_num(weights)
-            # [C, D]
-            mean = torch.mm(weights, f_d)
-            f_avg[d] = mean
-            f_centers[d] = torch.mean(f_d, dim=0)
-        return f_avg, f_centers
-
-    def _update_anchors(self, x: torch.Tensor, preds: torch.Tensor, domain_labels: torch.Tensor):
-        f_avg, f_centers = self.mean_by_label(x, preds, domain_labels)
-        ema_anchors = self.ema_ratio * f_avg + (1 - self.ema_ratio) * self.ema_anchors
-        ema_centers = self.ema_ratio * f_centers + (1 - self.ema_ratio) * self.ema_centers
-        return ema_anchors, ema_centers
-
-    def update_anchors(self, x: torch.Tensor, preds: torch.Tensor, domain_labels: torch.Tensor):
-        for d, f, y in zip(domain_labels, x, preds):
-            self.ema_anchors[d][y] = self.ema_anchors[d][y] * self.ema_ratio + f * (1 - self.ema_ratio)
-            self.ema_centers[d] = self.ema_centers[d] * self.ema_ratio + f * (1 - self.ema_ratio)
-
-    def update(self, x, y, **kwargs):
-        all_x = torch.cat(x)
-        all_y = torch.cat(y)
-
-        domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long().to(all_x.device)
-        f = self.featurizer(all_x)
-
-        # self.update_anchors(concat_all_gather(f), concat_all_gather(all_y), domain_labels)
-        ema_anchors, ema_centers = self._update_anchors(
-            concat_all_gather(f), concat_all_gather(all_y), concat_all_gather(domain_labels))
-        # ema_anchors, ema_centers = self._update_anchors(f, all_y, domain_labels)
-
-        loss = F.cross_entropy(self.classifier(f), all_y)
-        if kwargs['step'] > 200:
-            ema_vecs = ema_anchors - ema_centers.unsqueeze(1)
-            center_var, center = torch.var_mean(ema_centers, dim=0)
-            loss_centers = center_var.mean()
-            # loss += loss_centers
-
-            loss_compact = F.mse_loss(self.ema_anchors[domain_labels, all_y].detach(), f)
-
-            # normalize the ema_vectors
-            ema_vecs_norm = torch.norm(ema_vecs, p=2, dim=-1, keepdim=True)
-            ema_vecs = ema_vecs / ema_vecs_norm
-            var_vecs_norm = torch.var(ema_vecs_norm, dim=0)
-            loss_norm = var_vecs_norm.mean()
-
-            neg_list, pos_list = [], []
-            for j in range(self.num_domains):
-                neg = torch.einsum('ij,kj->ik', [ema_vecs[j], ema_vecs[j]])
-                neg_list.append(neg.triu(diagonal=1))
-
-            for (j, k) in itertools.combinations(range(self.num_domains), 2):
-                pos = torch.einsum('ij,ij->i', [ema_vecs[j], ema_vecs[k]]).unsqueeze(-1)
-                pos_list.append(pos)
-
-            neg_all = torch.cat(neg_list, dim=1)
-            pos_all = torch.cat(pos_list, dim=1)
-            neg_and_pos = torch.cat((neg_all, pos_all), dim=1)
-            loss_pos = torch.logsumexp(-pos_all / self.temperature, dim=1)
-            loss_neg = torch.logsumexp(neg_and_pos / self.temperature, dim=1)
-            loss_contr = torch.mean(0.5 * loss_pos + 0.5 * loss_neg)
-            loss += loss_contr
-
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-
-        # update the ema_anchors for model
-        self.ema_anchors = average_all_gather(ema_anchors).data
-        self.ema_centers = average_all_gather(ema_centers).data
-
-        return {"loss": loss.item()}
-
-    def predict(self, x):
-        return self.network(x)
-
-
-class SupervisedTreeWasserstein(Algorithm):
-    def __init__(self, input_shape, num_classes, num_domains, hparams):
-        super(SupervisedTreeWasserstein, self).__init__(input_shape, num_classes, num_domains, hparams)
-        self.featurizer = networks.Featurizer(input_shape, self.hparams)
-        self.classifier = nn.Linear(self.featurizer.n_outputs, num_classes)
-        # TODO: create in config.yml
-        self.n_inner = hparams['n_inner']
-        self.n_leaf = self.featurizer.n_outputs
-        self.n_node = self.n_leaf + self.n_inner
-        self.alpha = hparams['alpha']
-        self.n_ary = hparams['n_ary']
-        self.margin = hparams['margin']
-
-        self.tree_param = nn.Parameter(
-            torch.randn(self.n_inner, self.n_leaf)
-        )
-        self.propotypes = nn.Parameter(
-            torch.randn(num_classes, self.n_leaf)
-        )
-        nn.init.normal_(self.tree_param, 0.0, 0.1)
-        nn.init.normal_(self.propotypes, 0.0, 0.1)
-
-        self.device = torch.device('cpu')
-
-        self.register_buffer("A", self.get_A())
-        self.register_buffer("inv_A", self.calc_inv_A())
-
-        params = [
-            {"params": self.tree_param},
-            {"params": self.propotypes},
-            {"params": self.featurizer.parameters()}
-        ]
-        self.optimizer = get_optimizer(
-            hparams["optimizer"],
-            params,
-            lr=self.hparams["lr"],
-            weight_decay=self.hparams["weight_decay"]
-        )
-
-    def cuda(self, device=None):
-        super().cuda(device)
-        self.device = device
-
-    def classifier_logits(self, mass, block_psub=None):
-        if block_psub is None:
-            block_psub = self.calc_psub()
-
-        # [C, B, V] = [C, 1, V] - [1, B, V]
-        pairwise_vectors = self.propotypes.unsqueeze(0) - mass.unsqueeze(1)
-        dist = torch.einsum('mn,ijn->ijm', block_psub.detach(), pairwise_vectors)
-
-        pairwise_distances = self.smoothabs(dist, alpha=self.alpha).sum(dim=-1) + self.smoothabs(pairwise_vectors, alpha=self.alpha).sum(dim=-1)
-
-        return -pairwise_distances
-
-    def update(self, x, y, **kwargs):
-        all_x = torch.cat(x)
-        all_y = torch.cat(y)
-
-        # TODO: Consider whether to create domain labels for it.
-        # domain_labels = torch.cat([torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long()
-        f = self.featurizer(all_x)
-        distances = self.calc_distances(f)
-        logits = self.classifier_logits(f)
-        ce_loss = F.cross_entropy(logits, all_y)
-        contr_loss = self.calc_contrastive_loss(distances, all_y, self.margin)
-        total_loss = contr_loss + ce_loss
-        self.optimizer.zero_grad()
-        total_loss.backward()
-        self.optimizer.step()
-
-        return {"ce_loss": total_loss.item(), "contr_loss": contr_loss.item()}
-
-    def predict(self, x):
-        f = self.featurizer(x)
-        logits = self.classifier_logits(f)
-        return logits
-
-    @staticmethod
-    def smoothabs(x, alpha):
-        values = torch.clamp(alpha * x, min=-40.0, max=40.0)
-        return (x * torch.exp(values) - x * torch.exp(-values)) / (2.0 + torch.exp(values) + torch.exp(-values))
-
-    def get_A(self):
-        """
-        Initialize the D1, which is an adjacency matrix from root to the inner
-        nodes and return I - D1.
-        Assume the D1 is the perfect n-ary tree.
-        """
-        A = torch.zeros(self.n_inner, self.n_inner - 1)
-        for i in range(1, int(self.n_inner // self.n_ary)):
-            A[i-1, self.n_ary*(i-1):self.n_ary*i] = 1.0
-        A[int(self.n_inner // self.n_ary) - 1, self.n_ary*(int(self.n_inner)-1):] = 1.0
-        A = A.to(self.device)
-        D1 = torch.cat([torch.zeros(self.n_inner, 1), A],
-                       dim=1).to(self.device)
-        return torch.eye(self.n_inner, device=self.device) - D1
-
-    def calc_inv_A(self):
-        """
-        return (I - D1)^{-1}.
-        """
-        return self.A.inverse()
-
-    def calc_ppar(self):
-        """
-        return upper two blocks of D_par, because the lower blocks are zeros
-        """
-        exp_param = F.softmax(self.tree_param, dim=0)
-        return torch.cat([torch.eye(self.n_inner) - self.A, exp_param], dim=1)
-
-    def calc_psub(self):
-        """
-        X[i, j] = P_{sub}(v_j+self.n_inner | v_i).
-        """
-        B = F.softmax(self.tree_param, dim=0)
-        X = torch.mm(self.inv_A, B)
-        return X
-
-    def calc_distance(self, mass1, mass2, block_psub=None):
-        """
-        Parameters
-        ----------
-        mass1: torch.Tensor (self.n_leaf, 1)
-            normalized bag-of-words
-        mass2: torch.Tensor (self.n_leaf, 1)
-            normalized bag-of-words
-        block_psub: torch.Tensor (self.n_inner, self.n_leaf)
-            return value of self.calc_block_psub()
-        """
-        if block_psub is None:
-            block_psub = self.calc_psub()
-        return self.smoothabs(torch.mv(block_psub, mass1 - mass2), alpha=self.alpha).sum(dim=-1) + self.smoothabs(mass1 - mass2, alpha=self.alpha).sum(dim=-1)
-
-    def calc_distances(self, mass, block_psub=None):
-        if block_psub is None:
-            block_psub = self.calc_psub()
-
-        # [B, B, V]
-        pairwise_vectors = mass.unsqueeze(1) - mass.unsqueeze(0)
-        dist = torch.einsum('mn,ijn->ijm', block_psub, pairwise_vectors)
-
-        pairwise_distances = self.smoothabs(dist, alpha=self.alpha).sum(dim=-1) + self.smoothabs(pairwise_vectors, alpha=self.alpha).sum(dim=-1)
-
-        return pairwise_distances
-
-    def calc_contrastive_loss(self, distances, labels, margin=10.0):
-        batch_size = distances.shape[0]
-        pos_mask = ((labels.unsqueeze(1) == labels.unsqueeze(0)).float() - torch.eye(batch_size, device=self.device))
-        neg_mask = 1.0 - pos_mask - torch.eye(batch_size, device=self.device)
-        n_pos = pos_mask.sum() + 1e-15
-        n_neg = neg_mask.sum() + 1e-15
-        cl_loss = (distances * pos_mask).sum() / n_pos + (torch.clamp(-distances * neg_mask, -margin)).sum() / n_neg
-        return cl_loss
 
 
 class Mixstyle(Algorithm):

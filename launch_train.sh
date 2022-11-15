@@ -1,23 +1,23 @@
 # run HP search on OfficeHome @ RTX2080Ti
 python -m domainbed.scripts.sweep launch \
        --data_dir=/home/hzn/datasets \
-       --output_dir=train_output/sweep/officehome \
+       --output_dir=train_output/sweep-v2/officehome \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
-       --mem_usage 11GiB \
+       --algorithms iDAG \
+       --mem_usage 5GiB \
        --num_parallel 8 \
        --datasets OfficeHome \
        --single_test_envs \
-       --n_hparams 5 \
+       --n_hparams 20 \
        --n_trials 3 \
-       --hparams '{"resnet18": "True"}'
+       --hparams '{"resnet18": "True", "hidden_size": 512, "out_dim": 512}'
 
 # delete incomplete OfficeHome @ RTX2080Ti
 python -m domainbed.scripts.sweep delete_incomplete \
        --data_dir=/home/hzn/datasets \
-       --output_dir=train_output/sweep/officehome \
+       --output_dir=train_output/sweep-v2/officehome \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 11GiB \
        --num_parallel 8 \
        --datasets OfficeHome \
@@ -31,7 +31,7 @@ CUDA_VISIBLE_DEVICES=0,1 python -m domainbed.scripts.sweep launch \
        --data_dir=/home/hzn/datasets \
        --output_dir=train_output/sweep-v1/pacs \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 4GiB \
        --num_parallel 4 \
        --datasets PACS \
@@ -46,7 +46,7 @@ python -m domainbed.scripts.sweep launch \
        --data_dir /data/huangzenan/SWAD/data \
        --output_dir train_output/sweep-v1/officehome \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 10.5GiB \
        --num_parallel 8 \
        --launch_delay 5 \
@@ -60,7 +60,7 @@ python -m domainbed.scripts.sweep delete_incomplete \
        --data_dir /data/huangzenan/SWAD/data \
        --output_dir train_output/sweep-v1/officehome \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 11GiB \
        --num_parallel 8 \
        --launch_delay 5 \
@@ -74,7 +74,7 @@ python -m domainbed.scripts.sweep launch \
        --data_dir /data/huangzenan/SWAD/data \
        --output_dir train_output/sweep-v1/domainnet \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 17GiB \
        --num_parallel 8 \
        --launch_delay 3 \
@@ -88,7 +88,7 @@ python -m domainbed.scripts.sweep delete_incomplete \
        --data_dir /data/huangzenan/SWAD/data \
        --output_dir train_output/sweep-v1/domainnet \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 17GiB \
        --num_parallel 8 \
        --launch_delay 3 \
@@ -102,7 +102,7 @@ python -m domainbed.scripts.sweep launch \
        --data_dir /data/hzn/TransferLearning/SWAD/data \
        --output_dir train_output/sweep-v1/domainnet \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 17GiB \
        --num_parallel 8 \
        --launch_delay 3 \
@@ -116,7 +116,7 @@ python -m domainbed.scripts.sweep launch \
        --data_dir /data/hzn/TransferLearning/SWAD/data \
        --output_dir train_output/sweep-v1/officehome \
        --command_launcher multi_available_gpu \
-       --algorithms DAGDG \
+       --algorithms iDAG \
        --mem_usage 11GiB \
        --num_parallel 8 \
        --launch_delay 3 \
