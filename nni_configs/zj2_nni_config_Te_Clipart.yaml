@@ -40,5 +40,5 @@ tuner:
     #choice: maximize, minimize
     optimize_mode: maximize
 trialCommand: python nni_train_all.py Clipart0 --algorithm iDAG --data_dir /data/huangzenan/SWAD/data --dataset OfficeHome --output_dir ./train_output --test_envs 1 --steps 5000 --checkpoint_freq 300 --batch_size 32
-trialCodeDirectory: .
+trialCodeDirectory: ..
 trialGpuNumber: 1
