@@ -57,6 +57,7 @@ def main(nni_params):
     parser.add_argument("--tb_freq", default=10)
     parser.add_argument("--debug", action="store_true", help="Run w/ debug mode")
     parser.add_argument("--show", action="store_true", help="Show args and hparams w/o run")
+    parser.add_argument("--super_aug", action="store_true", help="Whether use super data augmentation.")
     parser.add_argument(
         "--evalmode",
         default="fast",
@@ -184,6 +185,7 @@ def main(nni_params):
             checkpoint_freq=checkpoint_freq,
             logger=logger,
             writer=writer,
+            super_aug=args.super_aug,
         )
         all_records.append(records)
         for k, v in res.items():

@@ -30,7 +30,7 @@ def json_handler(v):
     raise TypeError(f"`{type(v)}` is not JSON Serializable")
 
 
-def train(test_envs, args, hparams, n_steps, checkpoint_freq, logger, writer, target_env=None):
+def train(test_envs, args, hparams, n_steps, checkpoint_freq, logger, writer, target_env=None, super_aug=False):
     logger.info("")
 
     #######################################################

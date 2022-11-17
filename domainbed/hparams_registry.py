@@ -48,11 +48,6 @@ def _hparams(algorithm, dataset, random_state):
     if algorithm in ["DRDA"]:
         hparams["temperature"] = (0.07, 1.0)
         hparams["ema_ratio"] = (0.3, 0.3)
-    elif algorithm in ["SupervisedTreeWasserstein"]:
-        hparams["n_inner"] = (512, random_state.choice([512, 1024]))
-        hparams["n_ary"] = (8, random_state.choice([5, 8]))
-        hparams["alpha"] = (2.0, random_state.uniform(2.0, 10.0))
-        hparams["margin"] = (10.0, random_state.uniform(2.0, 20.0))
     elif algorithm in ["DANN", "CDANN"]:
         if dataset not in SMALL_IMAGES:
             hparams["lr_g"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
@@ -110,6 +105,7 @@ def _hparams(algorithm, dataset, random_state):
     elif algorithm in ["iDAG", "iDAGamp"]:
         hparams["hidden_size"] = (512, 512)
         hparams["out_dim"] = (512, 512)
+        hparams["num_hidden_layers"] = (0, 0)
         hparams["dag_anneal_steps"] = (200, int(random_state.choice([200, 400, 600, 800])))
         hparams["temperature"] = (0.07, random_state.uniform(0.07, 0.01))
         hparams["ema_ratio"] = (0.99, random_state.uniform(0.99, 0.999))
@@ -121,6 +117,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["alpha"] = (1.0, 1.0)
         hparams["weight_nu"] = (1.0, random_state.uniform(1.0, 2.0))
         hparams["weight_mu"] = (1.0, random_state.uniform(1.0, 2.0))
+        hparams["super_aug"] = (False, False)
 
     return hparams
 

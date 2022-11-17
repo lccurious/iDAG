@@ -186,7 +186,8 @@ class iDAG(Algorithm):
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.encoder = networks.LightEncoder(self.featurizer.n_outputs,
                                              hparams['hidden_size'],
-                                             hparams['out_dim'])
+                                             hparams['out_dim'],
+                                             hparams["num_hidden_layers"])
 
         self.dag_mlp = networks.NotearsClassifier(hparams['out_dim'], num_classes)
         self.dag_mlp.weight_pos.data[:-1, -1].fill_(1.0)
@@ -309,13 +310,12 @@ class iDAG(Algorithm):
                 "l2": loss_rec.item(),
                 "penalty": penalty.item(),
                 "l1": l1_reg.item(),
-                "cl": loss_contr.item(),
-                "mask": self.dag_mlp.masked_ratio().item()}
+                "cl": loss_contr.item()}
 
     def predict(self, x):
         f = self.featurizer(x)
         f = self.encoder(f)
-        masked_f = self.dag_mlp.mask_feature(f)
+        masked_f = self.dag_mlp(f)
         return self.inv_classifier(masked_f)
 
     def clone(self):
@@ -419,8 +419,7 @@ class iDAGamp(iDAG):
                 "l2": loss_rec.item(),
                 "penalty": penalty.item(),
                 "l1": l1_reg.item(),
-                "cl": loss_contr.item(),
-                "mask": self.dag_mlp.masked_ratio().item()}
+                "cl": loss_contr.item()}
 
 
 class Mixstyle(Algorithm):

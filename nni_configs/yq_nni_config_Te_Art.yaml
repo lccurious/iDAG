@@ -1,11 +1,11 @@
 experimentName: iDAG_Te_Art
-trialConcurrency: 3
+trialConcurrency: 4
 maxExperimentDuration: 72h
 maxTrialNumber: 200
 #choice: local, remote, pai, kubeflow
 trainingService:
   platform: local
-  gpuIndices: 0,1
+  gpuIndices: 0,1,2,3
   useActiveGpu: true
   maxTrialNumberPerGpu: 1
 #choice: true, false
@@ -39,6 +39,6 @@ tuner:
   classArgs:
     #choice: maximize, minimize
     optimize_mode: maximize
-trialCommand: python nni_train_all.py Art0 --algorithm iDAG --data_dir /home/hzn/datasets --dataset OfficeHome --output_dir ./train_output --test_envs 0 --steps 6000 --checkpoint_freq 200 --batch_size 16
-trialCodeDirectory: .
+trialCommand: python nni_train_all.py Art0 --algorithm iDAGamp --data_dir /home/hzn/datasets --dataset OfficeHome --output_dir ./train_output --test_envs 0 --steps 6000 --checkpoint_freq 600 --batch_size 16
+trialCodeDirectory: ..
 trialGpuNumber: 1

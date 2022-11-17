@@ -511,20 +511,22 @@ class NotearsClassifier(nn.Module):
 
 
 class LightEncoder(nn.Module):
-    def __init__(self, in_channels, out_channels, hidden_size) -> None:
+    def __init__(self, in_channels, out_channels, hidden_size, num_hidden_layers=0) -> None:
         super(LightEncoder, self).__init__()
         self.dropout = nn.Dropout(0.25)
-        self.encoder = nn.Sequential(
+        layers = [
             nn.Linear(in_channels, hidden_size),
             nn.BatchNorm1d(hidden_size),
             nn.ReLU(inplace=True),
             self.dropout,
-            # nn.Linear(hidden_size, hidden_size),
-            # nn.BatchNorm1d(hidden_size),
-            # nn.ReLU(inplace=True),
-            # self.dropout,
-            nn.Linear(hidden_size, out_channels),
-        )
+        ]
+        for _ in range(num_hidden_layers):
+            layers.append(nn.Linear(hidden_size, hidden_size))
+            layers.append(nn.BatchNorm1d(hidden_size))
+            layers.append(nn.ReLU(inplace=True))
+            layers.append(self.dropout)
+        layers.append(nn.Linear(hidden_size, out_channels))
+        self.encoder = nn.Sequential(*layers)
         self._initialize_weights(self.encoder)
 
     def _initialize_weights(self, modules):
