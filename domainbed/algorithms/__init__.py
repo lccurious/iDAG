@@ -31,7 +31,8 @@ ALGORITHMS = [
         'Transfer',
         'CausIRL_CORAL',
         'CausIRL_MMD',
-
+        'iDAG',
+        'iDAGCMNIST',
 ]
 
 

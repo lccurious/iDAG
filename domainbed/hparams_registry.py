@@ -45,10 +45,7 @@ def _hparams(algorithm, dataset, random_state):
     else:
         hparams["weight_decay"] = (0.0, 10 ** random_state.uniform(-6, -2))
 
-    if algorithm in ["DRDA"]:
-        hparams["temperature"] = (0.07, 1.0)
-        hparams["ema_ratio"] = (0.3, 0.3)
-    elif algorithm in ["DANN", "CDANN"]:
+    if algorithm in ["DANN", "CDANN"]:
         if dataset not in SMALL_IMAGES:
             hparams["lr_g"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
             hparams["lr_d"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
@@ -102,7 +99,7 @@ def _hparams(algorithm, dataset, random_state):
         hparams["beta"] = (1.0, 1.0)
         # cutmix_prob is set to 1.0 for ImageNet and 0.5 for CIFAR100 in the original paper.
         hparams["cutmix_prob"] = (1.0, 1.0)
-    elif algorithm in ["iDAG", "iDAGamp"]:
+    elif algorithm in ["iDAG", "iDAGamp", "iDAGCMNIST"]:
         hparams["hidden_size"] = (512, 512)
         hparams["out_dim"] = (512, 512)
         hparams["num_hidden_layers"] = (0, 0)

@@ -1,6 +1,8 @@
 # iDAG: Towards Invariant Causal Discovery for Domain Generalization
 
-Official PyTorch implementation of iDAG
+PyTorch implementation of iDAG.
+
+![framwork](images/02-framework.png)
 
 ## Preparation
 
@@ -21,9 +23,9 @@ python -m domainbed.scripts.download --data_dir=/my/datasets/path
 Environment details used for our study.
 
 ```
-Python: 3.9.13
-PyTorch: 1.10.0
-Torchvision: 0.11.0
+Python: 3.10.4
+PyTorch: 1.11.0
+Torchvision: 0.12.0
 CUDA: 10.2
 CUDNN: 7605
 NumPy: 1.23.1
@@ -57,9 +59,6 @@ Example results:
 ```
 In this example, the DG performance of SWAD for PACS dataset is 89.009%.
 
-If you set `indomain_test` option to `True`, the validation set is splitted to validation and test sets,
-and the `(inD)` keys become to indicate in-domain test accuracy.
-
 
 ### Reproduce the results of the paper
 
@@ -72,14 +71,6 @@ Note that the difference in a detailed environment or uncontrolled randomness ma
 python train_all.py PACS0 --dataset PACS --deterministic --trial_seed 0 --checkpoint_freq 100 --data_dir /my/datasets/path
 python train_all.py PACS1 --dataset PACS --deterministic --trial_seed 1 --checkpoint_freq 100 --data_dir /my/datasets/path
 python train_all.py PACS2 --dataset PACS --deterministic --trial_seed 2 --checkpoint_freq 100 --data_dir /my/datasets/path
-```
-
-- VLCS
-
-```
-python train_all.py VLCS0 --dataset VLCS --deterministic --trial_seed 0 --checkpoint_freq 50 --tolerance_ratio 0.2 --data_dir /my/datasets/path
-python train_all.py VLCS1 --dataset VLCS --deterministic --trial_seed 1 --checkpoint_freq 50 --tolerance_ratio 0.2 --data_dir /my/datasets/path
-python train_all.py VLCS2 --dataset VLCS --deterministic --trial_seed 2 --checkpoint_freq 50 --tolerance_ratio 0.2 --data_dir /my/datasets/path
 ```
 
 - OfficeHome
@@ -105,13 +96,3 @@ python train_all.py DN0 --dataset DomainNet --deterministic --trial_seed 0 --che
 python train_all.py DN1 --dataset DomainNet --deterministic --trial_seed 1 --checkpoint_freq 500 --data_dir /my/datasets/path
 python train_all.py DN2 --dataset DomainNet --deterministic --trial_seed 2 --checkpoint_freq 500 --data_dir /my/datasets/path
 ```
-
-
-## Main Results
-
-
-## License
-
-This source code is released under the MIT license, included [here](./LICENSE).
-
-This project includes some code from [DomainBed](https://github.com/facebookresearch/DomainBed/tree/3fe9d7bb4bc14777a42b3a9be8dd887e709ec414), also MIT licensed.

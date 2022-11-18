@@ -454,10 +454,6 @@ class NotearsClassifier(nn.Module):
         self.num_classes = num_classes
         self.weight_pos = nn.Parameter(torch.zeros(dims + 1, dims + 1))
         self.weight_neg = nn.Parameter(torch.zeros(dims + 1, dims + 1))
-        # self.weight_pos = nn.Parameter(torch.triu(torch.rand(dims + 1, dims + 1), diagonal=1))
-        # self.weight_neg = nn.Parameter(torch.triu(torch.rand(dims + 1, dims + 1), diagonal=1))
-        # nn.init.kaiming_normal_(self.weight_pos, mode='fan_in')
-        # nn.init.kaiming_normal_(self.weight_neg, mode='fan_in')
         self.register_buffer("_I", torch.eye(dims + 1))
         self.register_buffer("_repeats", torch.ones(dims + 1).long())
         self._repeats[-1] *= num_classes
@@ -547,50 +543,3 @@ class LightEncoder(nn.Module):
     def forward(self, x):
         feat = self.encoder(x)
         return feat
-
-
-def fea_proj(hparams):
-    if hparams['dataset'] == "OfficeHome":
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 512
-        hparams['out_dim'] = 512
-        fea_proj = nn.Sequential(
-            nn.Linear(hparams['out_dim'],
-                      hparams['hidden_size']),
-            dropout,
-            nn.Linear(hparams['hidden_size'],
-                      hparams['out_dim']),
-        )
-        fc_proj = nn.Parameter(
-            torch.FloatTensor(hparams['out_dim'],
-                              hparams['out_dim'])
-        )
-    elif hparams['dataset'] == "PACS":
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 256
-        hparams['out_dim'] = 256
-        fea_proj = nn.Sequential(
-            nn.Linear(hparams['out_dim'],
-                      hparams['out_dim']),
-        )
-        fc_proj = nn.Parameter(
-            torch.FloatTensor(hparams['out_dim'],
-                              hparams['out_dim'])
-        )
-
-    elif hparams['dataset'] == "TerraIncognita":
-        dropout = nn.Dropout(0.25)
-        hparams['hidden_size'] = 512
-        hparams['out_dim'] = 512
-        fea_proj = nn.Sequential(
-            nn.Linear(hparams['out_dim'],
-                      hparams['out_dim']),
-        )
-        fc_proj = nn.Parameter(
-            torch.FloatTensor(hparams['out_dim'],
-                              hparams['out_dim'])
-        )
-    else:
-        pass
-
-    return fea_proj, fc_proj

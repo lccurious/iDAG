@@ -422,6 +422,114 @@ class iDAGamp(iDAG):
                 "cl": loss_contr.item()}
 
 
+class iDAGCMNIST(ERM):
+    def __init__(self, input_shape, num_classes, num_domains, hparams):
+        super(iDAGCMNIST, self).__init__(input_shape, num_classes, num_domains, hparams)
+        self.notears_mlp = networks.LinearNotears(self.featurizer.n_outputs + 1)
+        self.notears_optimizer = torch.optim.Adam(self.notears_mlp.parameters(),
+                                                  lr=self.hparams["lr"])
+        self.lambda1 = hparams['lambda1']
+        self.lambda2 = hparams['lambda2']
+        self.notears_max_iter = hparams['notears_max_iter']
+        self.h_tol = hparams['h_tol']
+        self.rho_max = hparams['rho_max']
+        self.w_threshold = hparams['w_threshold']
+        self.rho = 1e8
+        self.alpha = 1e8
+        self.h = np.inf
+        self.train_dag = False
+
+        # create prototype
+        self.proto_m = 0.99
+        self.register_buffer("prototypes", torch.zeros(num_classes, self.featurizer.n_outputs))
+        self.register_buffer("prototypes_y", torch.arange(num_classes).unsqueeze(1))
+        self.loss_proto_con = PrototypePLoss(num_classes, 0.07)
+
+    def update(self, x, y, **kwargs):
+        minibatches = to_minibatch(x, y)
+        all_x = torch.cat(x)
+        all_y = torch.cat(y)
+
+        domain_labels = torch.cat(
+            [torch.ones(len(_y)) * i for i, _y in enumerate(y)]).long().to(all_x.device)
+        all_f = self.featurizer(all_x)
+
+        for f, label_y in zip(all_f, all_y):
+            self.prototypes[label_y] = self.proto_m * self.prototypes[label_y] + (1 - self.proto_m) * f
+        self.prototypes = F.normalize(self.prototypes, p=2, dim=1)
+
+        prototypes = self.prototypes.clone().detach()
+        loss_contr = self.loss_proto_con(all_f, prototypes, all_y)
+
+        # dag_inputs = torch.cat([all_f, all_y.unsqueeze(1)], dim=1)
+        dag_inputs = torch.cat([prototypes, self.prototypes_label], dim=1)
+        dag_inputs = dag_inputs - dag_inputs.mean(dim=0, keepdim=True)
+
+        notears_pos = self.notears_mlp(dag_inputs)
+        loss_ce = F.binary_cross_entropy_with_logits(notears_pos[:, -1], self.prototypes_label.squeeze().float())
+
+        # constraint weights
+        self.notears_mlp.weight_pos.data.clamp_(0, None)
+        self.notears_mlp.weight_neg.data.clamp_(0, None)
+        self.notears_mlp.weight_pos.data.fill_diagonal_(0)
+        self.notears_mlp.weight_neg.data.fill_diagonal_(0)
+
+        h_val = self.notears_mlp.h_func()
+        penalty = 0.5 * self.rho * h_val * h_val + self.alpha * h_val
+        l1_reg = self.lambda1 * self.notears_mlp.w_l1_reg()
+
+        if kwargs["step"] % 50 == 0:
+            self.train_dag = ~self.train_dag
+            if self.h > 1.0:
+                self.train_dag = True
+                self.notears_optimizer = torch.optim.Adam(
+                    self.notears_mlp.parameters(),
+                    lr=self.hparams["lr"])
+
+        loss_rec = F.mse_loss(notears_pos[:, :-1],
+                              dag_inputs[:, :-1].detach(),
+                              reduction='sum') / all_f.size(0) * 0.5
+
+        loss_dag = loss_rec + penalty + l1_reg
+        if kwargs["step"] < self.hparams["dag_anneal_steps"]:
+            # Warmup phase
+            loss = loss_ce + loss_rec + loss_contr
+        elif self.train_dag:
+            # train dag
+            for p in self.featurizer.parameters():
+                p.requires_grad = False
+            for p in self.notears_mlp.parameters():
+                p.requires_grad = True
+            loss = loss_ce + loss_dag
+        else:
+            # train featurizer
+            for p in self.featurizer.parameters():
+                p.requires_grad = True
+            for p in self.notears_mlp.parameters():
+                p.requires_grad = False
+            loss = loss_ce + loss_rec + loss_contr
+
+        self.h = h_val.item()
+
+        self.notears_optimizer.zero_grad()
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.notears_optimizer.step()
+        self.optimizer.step()
+
+        return {"loss": loss.item(), "loss_ce": loss_ce.item(), "loss_rec": loss_rec.item(),
+                "penalty": penalty.item(), "l1_reg": l1_reg.item(), "loss_contr": loss_contr.item()}
+
+    def predict(self, x):
+        f = self.featurizer(x)
+        dag_inputs = torch.cat([f, torch.zeros(f.size(0), 1, device=f.device)], dim=1)
+        dag_inputs = dag_inputs - dag_inputs.mean(dim=0, keepdim=True)
+        notears_f = self.notears_mlp(dag_inputs)
+        logits = torch.sigmoid(notears_f[:, -1:])
+        logits = torch.cat([1.0 - logits, logits], dim=1)
+        return logits
+
+
 class Mixstyle(Algorithm):
     """MixStyle w/o domain label (random shuffle)"""
 
