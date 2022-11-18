@@ -128,7 +128,7 @@ class ERM(Algorithm):
 
 
 class PrototypePLoss(nn.Module):
-    def __init__(self, num_classes, num_domains, temperature):
+    def __init__(self, num_classes, temperature):
         super(PrototypePLoss, self).__init__()
         self.soft_plus = nn.Softplus()
         self.label = torch.arange(num_classes)
@@ -224,7 +224,7 @@ class iDAG(Algorithm):
             lr=self.hparams["lr"],
             weight_decay=self.hparams["weight_decay"],
         )
-        self.loss_proto_con = PrototypePLoss(num_classes, num_domains, hparams['temperature'])
+        self.loss_proto_con = PrototypePLoss(num_classes, hparams['temperature'])
         self.loss_multi_proto_con = MultiDomainPrototypePLoss(num_classes, num_domains, hparams['temperature']) 
 
     def update(self, x, y, **kwargs):
@@ -430,10 +430,8 @@ class iDAGCMNIST(ERM):
                                                   lr=self.hparams["lr"])
         self.lambda1 = hparams['lambda1']
         self.lambda2 = hparams['lambda2']
-        self.notears_max_iter = hparams['notears_max_iter']
         self.h_tol = hparams['h_tol']
         self.rho_max = hparams['rho_max']
-        self.w_threshold = hparams['w_threshold']
         self.rho = 1e8
         self.alpha = 1e8
         self.h = np.inf
@@ -442,7 +440,7 @@ class iDAGCMNIST(ERM):
         # create prototype
         self.proto_m = 0.99
         self.register_buffer("prototypes", torch.zeros(num_classes, self.featurizer.n_outputs))
-        self.register_buffer("prototypes_y", torch.arange(num_classes).unsqueeze(1))
+        self.register_buffer("prototypes_label", torch.arange(num_classes).unsqueeze(1))
         self.loss_proto_con = PrototypePLoss(num_classes, 0.07)
 
     def update(self, x, y, **kwargs):
@@ -455,7 +453,7 @@ class iDAGCMNIST(ERM):
         all_f = self.featurizer(all_x)
 
         for f, label_y in zip(all_f, all_y):
-            self.prototypes[label_y] = self.proto_m * self.prototypes[label_y] + (1 - self.proto_m) * f
+            self.prototypes[label_y] = self.proto_m * self.prototypes[label_y] + (1 - self.proto_m) * f.detach()
         self.prototypes = F.normalize(self.prototypes, p=2, dim=1)
 
         prototypes = self.prototypes.clone().detach()
@@ -491,7 +489,7 @@ class iDAGCMNIST(ERM):
                               reduction='sum') / all_f.size(0) * 0.5
 
         loss_dag = loss_rec + penalty + l1_reg
-        if kwargs["step"] < self.hparams["dag_anneal_steps"]:
+        if kwargs["step"] < self.hparams["warmup_steps"]:
             # Warmup phase
             loss = loss_ce + loss_rec + loss_contr
         elif self.train_dag:

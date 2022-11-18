@@ -25,8 +25,9 @@ def _hparams(algorithm, dataset, random_state):
     hparams["pretrained"] = (True, True)  # only for ResNet
 
     if dataset in ["ColoredMNIST"]:
-        hparams["hidden_dim"] = (128, 390)
+        hparams["hidden_dim"] = (390, 390)
         hparams["grayscale_model"] = (False, False)
+        hparams["warmup_steps"] = (320, 320)
 
     if dataset not in SMALL_IMAGES:
         hparams["lr"] = (5e-5, 10 ** random_state.uniform(-5, -3.5))
