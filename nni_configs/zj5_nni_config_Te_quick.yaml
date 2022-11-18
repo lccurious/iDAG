@@ -39,6 +39,6 @@ tuner:
   classArgs:
     #choice: maximize, minimize
     optimize_mode: maximize
-trialCommand: python nni_train_all.py quick0 --algorithm iDAG --data_dir /data/hzn/TransferLearning/SWAD/data --dataset DomainNet --output_dir ./train_output --test_envs 3 --steps 15000 --checkpoint_freq 500 --batch_size 32 --num_hidden_layers 1 --hidden_size 1024 --super_aug
+trialCommand: python nni_train_all.py quick0 --algorithm iDAG --data_dir /data/hzn/TransferLearning/SWAD/data --dataset DomainNet --output_dir ./train_output --test_envs 3 --steps 15000 --checkpoint_freq 500 --batch_size 32 --num_hidden_layers 1 --hidden_size 1024 --out_dim 1024 --super_aug
 trialCodeDirectory: ..
 trialGpuNumber: 1
