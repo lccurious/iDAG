@@ -185,8 +185,8 @@ class iDAG(Algorithm):
                                    hparams)
         self.featurizer = networks.Featurizer(input_shape, self.hparams)
         self.encoder = networks.LightEncoder(self.featurizer.n_outputs,
-                                             hparams['hidden_size'],
                                              hparams['out_dim'],
+                                             hparams['hidden_size'],
                                              hparams["num_hidden_layers"])
 
         self.dag_mlp = networks.NotearsClassifier(hparams['out_dim'], num_classes)
